@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scheda persona · Lazzaro</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  body { overflow-y: auto; }
+  .pagina { max-width: 900px; margin: 0 auto; padding: 24px 16px 60px; }
+  .intestazione { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+  .intestazione .iniziali { width: 64px; height: 64px; font-size: 22px; }
+  .intestazione h1 { margin: 0; font-size: 26px; }
+  .intestazione .sotto { color: var(--tenue); font-size: 13px; }
+  .riassunto { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .sezione { margin-top: 26px; }
+  .sezione > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--debole); margin: 0 0 10px; }
+  .doc { background: var(--pannello); border: 1px solid var(--bordo); border-radius: var(--raggio); margin-bottom: 14px; overflow: hidden; }
+  .doc header { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--bordo); }
+  .doc header b { font-size: 15px; }
+  .doc header .etichetta { margin-left: 8px; }
+  .brano { padding: 12px 16px; border-left: 3px solid var(--bordeaux); margin: 12px 16px; background: var(--scheda); border-radius: 0 8px 8px 0; line-height: 1.6; }
+  .brano mark { background: var(--bordeaux); color: #fff; border-radius: 3px; padding: 0 3px; }
+  .brano .attenuato { color: var(--tenue); }
+  .testo-intero { padding: 14px 16px; white-space: pre-wrap; color: var(--tenue); border-top: 1px dashed var(--bordo); line-height: 1.6; }
+  .testo-intero mark, .risposta mark { background: var(--bordeaux); color: #fff; border-radius: 3px; padding: 0 3px; }
+  .risposta { background: var(--pannello); border: 1px solid var(--bordo); border-radius: var(--raggio); padding: 12px 16px; margin-bottom: 10px; }
+  .risposta .q { font-weight: 600; }
+  .risposta .a { color: var(--tenue); margin-top: 4px; white-space: pre-wrap; }
+  .risposta .testa { display: flex; justify-content: space-between; color: var(--debole); font-size: 11.5px; margin-bottom: 4px; }
+  .avviso { background: rgba(224, 178, 92, .1); border: 1px solid rgba(224, 178, 92, .4); color: var(--attenzione); border-radius: var(--raggio); padding: 12px 16px; }
+  .azioni { margin-left: auto; display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+<header class="testata" style="padding-bottom:14px">
+  <div class="riga-alta">
+    <div class="marchio">
+      <div class="logo"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5.5 5.5"/></svg></div>
+      <div>Lazzaro<small id="tipo-pagina">Scheda persona</small></div>
+    </div>
+  </div>
+</header>
+<div class="pagina" id="pagina"><div class="vuoto">Carico…</div></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const reEsc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const COLORI = ['#7b1e34', '#5c5c66', '#97304a', '#45454d', '#6b2537', '#73737d'];
+const colore = (n) => COLORI[[...n].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORI.length];
+const iniziali = (n) => n.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+const parametri = new URLSearchParams(location.search);
+
+// evidenzia i termini nel testo (prima escape, poi <mark>)
+function evidenzia(testo, termini, ignoraMaiuscole) {
+  let h = esc(testo);
+  const validi = termini.filter(Boolean).sort((a, b) => b.length - a.length);
+  if (!validi.length) return h;
+  const re = new RegExp(`(${validi.map((t) => reEsc(esc(t))).join('|')})`, ignoraMaiuscole ? 'gi' : 'g');
+  return h.replace(re, '<mark>$1</mark>');
+}
+
+// il contesto contiene la frase citata: la mettiamo in risalto e attenuiamo il resto
+function brano(b, termini, ignora) {
+  const i = b.contesto.indexOf(b.frase);
+  if (i < 0) return `<div class="brano">${evidenzia(b.contesto, termini, ignora)}</div>`;
+  const prima = b.contesto.slice(0, i), dopo = b.contesto.slice(i + b.frase.length);
+  return `<div class="brano"><span class="attenuato">${evidenzia(prima, termini, ignora)}</span>${evidenzia(b.frase, termini, ignora)}<span class="attenuato">${evidenzia(dopo, termini, ignora)}</span></div>`;
+}
+
+function schedaDocumento(d, termini, ignora) {
+  return `<article class="doc" data-id="${esc(d.id)}">
+    <header><span><b>${esc(d.titolo || d.id)}</b><span class="etichetta bordeaux">${esc(d.id)}</span></span>
+      <span class="etichetta">${d.brani.length} ${d.brani.length === 1 ? 'passaggio' : 'passaggi'}</span></header>
+    ${d.brani.map((b) => brano(b, termini, ignora)).join('')}
+    <div style="padding:0 16px 14px"><button class="btn-piccolo grigio" data-intero>Mostra il documento intero</button></div>
+  </article>`;
+}
+
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-intero]');
+  if (!b) return;
+  const art = b.closest('.doc');
+  const gia = art.querySelector('.testo-intero');
+  if (gia) { gia.remove(); b.textContent = 'Mostra il documento intero'; return; }
+  const d = await (await fetch(`/api/documento?id=${encodeURIComponent(art.dataset.id)}`)).json();
+  art.insertAdjacentHTML('beforeend', `<div class="testo-intero">${evidenzia(d.testo, window.terminiPagina || [], window.ignoraPagina)}</div>`);
+  b.textContent = 'Nascondi il documento intero';
+});
+
+async function paginaPersona(nome) {
+  const p = await (await fetch(`/api/persona?nome=${encodeURIComponent(nome)}`)).json();
+  document.title = `${p.nome} · Lazzaro`;
+  const termini = [p.nome, ...p.alias];
+  window.terminiPagina = termini;
+  const passaggi = p.documenti.reduce((a, d) => a + d.brani.length, 0);
+  $('#pagina').innerHTML = `
+    <div class="intestazione">
+      <span class="iniziali" style="background:${colore(p.nome)}">${esc(iniziali(p.nome))}</span>
+      <div><h1>${esc(p.nome)}</h1>
+        <div class="riassunto">
+          <span class="etichetta bordeaux">${p.documenti.length} ${p.documenti.length === 1 ? 'documento' : 'documenti'}</span>
+          <span class="etichetta">${passaggi} ${passaggi === 1 ? 'passaggio' : 'passaggi'}</span>
+          <span class="etichetta">citata in ${p.risposte.length} ${p.risposte.length === 1 ? 'risposta' : 'risposte'}</span>
+          ${p.alias.length ? `<span class="etichetta">anche: ${esc(p.alias.join(', '))}</span>` : ''}
+        </div></div>
+      <div class="azioni"><button class="btn-piccolo grigio" id="escludi" title="Se non è una persona (es. un luogo), toglila dall'elenco">Non è una persona</button></div>
+    </div>
+    ${p.documenti.length ? '' : `<div class="avviso">Nessun documento cita <b>${esc(p.nome)}</b>. Il nome compare solo nelle risposte del modello: potrebbe essere un'invenzione da verificare.</div>`}
+    <section class="sezione"><h2>Passaggi nei documenti</h2>
+      ${p.documenti.map((d) => schedaDocumento(d, termini, false)).join('') ||'<div class="vuoto">Nessun passaggio.</div>'}</section>
+    <section class="sezione"><h2>Risposte del modello che la citano</h2>
+      ${p.risposte.slice().reverse().map((r) => `<div class="risposta"><div class="testa"><span>${esc(r.ora)}</span><span>${esc(r.modello)}</span></div>
+        <div class="q">${esc(r.domanda)}</div><div class="a">${evidenzia(r.risposta, termini, false)}</div></div>`).join('') || '<div class="vuoto">Nessuna.</div>'}</section>`;
+  $('#escludi').addEventListener('click', async () => {
+    if (!confirm(`Togliere "${p.nome}" dall'elenco delle persone?`)) return;
+    await fetch('/api/persona/escludi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nome: p.nome }) });
+    $('#pagina').innerHTML = `<div class="avviso">"${esc(p.nome)}" non verrà più indicata come persona. Puoi chiudere questa pagina.</div>`;
+  });
+}
+
+const TIPI = {
+  luoghi: { nome: 'Luogo', icona: '<svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>' },
+  indizi: { nome: 'Indizio', icona: '<svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5.5 5.5M8 10.5h5M10.5 8v5"/></svg>' },
+  eventi: { nome: 'Evento', icona: '<svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>' },
+};
+
+async function paginaElemento(tipo, chiave) {
+  const r = await fetch(`/api/elemento?tipo=${encodeURIComponent(tipo)}&chiave=${encodeURIComponent(chiave)}`);
+  const e = await r.json();
+  const info = TIPI[tipo] || { nome: 'Elemento', icona: '' };
+  $('#tipo-pagina').textContent = `Scheda ${info.nome.toLowerCase()}`;
+  if (e.errore) { $('#pagina').innerHTML = `<div class="avviso">${esc(e.errore)}</div>`; return; }
+  document.title = `${e.nome} · Lazzaro`;
+  // per i luoghi si evidenzia il nome; per indizi ed eventi la frase citata è già in risalto
+  const termini = tipo === 'luoghi' ? [e.nome] : [];
+  window.terminiPagina = termini;
+  window.ignoraPagina = true;
+  const verificate = e.fonti.filter((f) => f.verificato).length;
+  const passaggi = e.documenti.reduce((a, d) => a + d.brani.length, 0);
+  $('#pagina').innerHTML = `
+    <div class="intestazione">
+      <span class="iniziali" style="background:var(--scheda-2);color:var(--bordeaux-chiaro)">${info.icona.replace('<svg', '<svg style="width:30px;height:30px"')}</span>
+      <div><h1>${esc(e.nome)}</h1>
+        <div class="riassunto">
+          <span class="etichetta bordeaux">${info.nome}</span>
+          <span class="etichetta">${e.documenti.length} ${e.documenti.length === 1 ? 'documento' : 'documenti'}</span>
+          <span class="etichetta">${passaggi} ${passaggi === 1 ? 'passaggio' : 'passaggi'}</span>
+          <span class="etichetta">in ${e.risposte.length} ${e.risposte.length === 1 ? 'risposta' : 'risposte'}</span>
+        </div></div>
+      <div class="azioni"><button class="btn-piccolo grigio" id="escludi" title="Toglilo dalla colonna degli elementi">Togli dall'elenco</button></div>
+    </div>
+    ${e.fonti.length && !verificate && tipo !== 'luoghi' ? `<div class="avviso">La citazione indicata dal modello non si trova nei documenti: questo ${info.nome.toLowerCase()} va verificato.</div>` : ''}
+    ${e.fonti.some((f) => !f.verificato) && verificate ? `<div class="avviso">Alcune citazioni del modello non si trovano nei documenti e non sono mostrate tra i passaggi.</div>` : ''}
+    <section class="sezione"><h2>Passaggi nei documenti</h2>
+      ${e.documenti.map((d) => schedaDocumento(d, termini, true)).join('') || '<div class="vuoto">Nessun passaggio trovato.</div>'}</section>
+    ${e.fonti.some((f) => !f.verificato) ? `<section class="sezione"><h2>Citazioni non verificate</h2>
+      ${e.fonti.filter((f) => !f.verificato).map((f) => `<div class="risposta"><div class="testa"><span>${esc(f.doc || '—')}</span><span>non trovata</span></div><div class="a">${esc(f.citazione)}</div></div>`).join('')}</section>` : ''}
+    <section class="sezione"><h2>Risposte del modello in cui compare</h2>
+      ${e.risposte.slice().reverse().map((r) => `<div class="risposta"><div class="testa"><span>${esc(r.ora)}</span><span>${esc(r.modello)}</span></div>
+        <div class="q">${esc(r.domanda)}</div><div class="a">${evidenzia(r.risposta, termini, true)}</div></div>`).join('') || '<div class="vuoto">Nessuna.</div>'}</section>`;
+  $('#escludi').addEventListener('click', async () => {
+    if (!confirm(`Togliere "${e.nome}" dalla colonna degli elementi?`)) return;
+    await fetch('/api/elemento/escludi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo, chiave }) });
+    $('#pagina').innerHTML = `<div class="avviso">"${esc(e.nome)}" è stato tolto dall'elenco. Puoi chiudere questa pagina.</div>`;
+  });
+}
+
+async function paginaDocumento(id) {
+  const d = await (await fetch(`/api/documento?id=${encodeURIComponent(id)}`)).json();
+  $('#tipo-pagina').textContent = 'Documento';
+  document.title = `${d.id || id} · Lazzaro`;
+  if (d.errore) { $('#pagina').innerHTML = `<div class="avviso">${esc(d.errore)}</div>`; return; }
+  $('#pagina').innerHTML = `<div class="intestazione"><div><h1>${esc(d.titolo || d.id)}</h1>
+      <div class="riassunto"><span class="etichetta bordeaux">${esc(d.id)}</span><span class="etichetta">${esc(d.nome)}</span><span class="etichetta">${esc(d.origine)}</span></div></div></div>
+    <article class="doc"><div class="testo-intero" style="border:0;color:var(--testo)">${esc(d.testo)}</div></article>`;
+}
+
+async function paginaRicerca(q) {
+  const r = await (await fetch(`/api/cerca?q=${encodeURIComponent(q)}`)).json();
+  $('#tipo-pagina').textContent = 'Ricerca nei documenti';
+  document.title = `"${q}" · Lazzaro`;
+  window.terminiPagina = [q];
+  window.ignoraPagina = true;
+  const n = r.documenti.reduce((a, d) => a + d.brani.length, 0);
+  $('#pagina').innerHTML = `<div class="intestazione"><div><h1>“${esc(q)}”</h1>
+      <div class="riassunto"><span class="etichetta bordeaux">${r.documenti.length} documenti</span><span class="etichetta">${n} passaggi</span></div></div></div>
+    ${r.documenti.map((d) => schedaDocumento(d, [q], true)).join('') ||'<div class="avviso">Nessun documento contiene questo termine.</div>'}`;
+}
+
+(async () => {
+  try {
+    if (parametri.get('tipo')) await paginaElemento(parametri.get('tipo'), parametri.get('chiave') || '');
+    else if (parametri.get('nome')) await paginaPersona(parametri.get('nome'));
+    else if (parametri.get('doc')) await paginaDocumento(parametri.get('doc'));
+    else if (parametri.get('q')) await paginaRicerca(parametri.get('q'));
+    else $('#pagina').innerHTML = '<div class="vuoto">Niente da mostrare.</div>';
+  } catch (err) {
+    $('#pagina').innerHTML = `<div class="avviso">Server non raggiungibile: ${esc(err.message)}</div>`;
+  }
+})();
+</script>
+</body>
+</html>

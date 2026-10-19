@@ -1,0 +1,11 @@
+﻿LAZARUS - cartella di presentazione (backend + interfaccia)
+
+Requisiti: uv e Ollama avviato. Modelli: ollama pull gemma4:12b  e  ollama pull bge-m3
+Avvio: doppio clic su avvia_interfaccia.bat  ->  http://127.0.0.1:8765
+Senza modello (prova grafica): avvia_interfaccia.bat --demo
+
+Contenuto
+- app_lazarus\lazarus.py   backend: modello, istruzioni, risposta (usato dall'interfaccia)
+- interfaccia\             server + pagina web (static\)
+- lazzaro\dati\            documenti G1-01..03
+Per cambiare modello: righe MODELLO / EMBEDDING in avvia_interfaccia.bat.
