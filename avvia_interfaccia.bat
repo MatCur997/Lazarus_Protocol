@@ -20,7 +20,7 @@ if not defined PY (
   exit /b 1
 )
 
-%PY% interfaccia\server.py --apri --modello %MODELLO% --embedding %EMBEDDING% %*
+%PY% interfaccia\backend\server.py --apri --modello %MODELLO% --embedding %EMBEDDING% %*
 if errorlevel 1 (
   echo.
   echo Il server si e' fermato con un errore: leggi il messaggio qui sopra.

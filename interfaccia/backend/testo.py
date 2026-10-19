@@ -16,7 +16,8 @@ NON_PERSONA = set('''id dio stato comune paese città centrale protocollo lazzar
 croce rossa regione provincia ministero radio messaggio fonte fonti documento documenti giorno ora oggi ieri domani
 nord sud est ovest zona settore quartiere rifugio ospedale stazione secondo inoltre tuttavia infatti però nessun nessuna
 sì no risposta domanda modalità demo investigatore uno due tre quattro cinque sei sette otto nove dieci venti cento mille
-primo prima secondo seconda terzo terza ultimo ultima alcuni alcune molti molte nessuno ogni questo questa'''.split())
+primo prima secondo seconda terzo terza ultimo ultima alcuni alcune molti molte nessuno ogni questo questa
+ipotesi indizio indizi dubbi dubbio evidenze evidenza fatto fatti nota note'''.split())   # ultime: etichette delle risposte
 
 PREFISSI_LUOGO = set('''via viale piazza piazzale corso largo vicolo ospedale stazione ponte porta chiesa scuola parco
 quartiere zona rifugio settore torre monte fiume lago hotel albergo bar banca caserma palazzo villa cascina borgo
@@ -63,7 +64,8 @@ def estrai_nomi(testo):
             prima = frase[:m.start()]
             coda = prima.rstrip()
             # dopo «, virgolette o due punti inizia un discorso diretto: conta come inizio frase
-            inizio_frase = coda.strip(' \t«»"“”‘’\'()-–—:') == '' or coda.endswith(('«', '"', '“', ':', '—', '–', '(', ')', ']'))
+            # anche dopo un grassetto Markdown (**Risposta:** ...) o un punto elenco
+            inizio_frase = coda.strip(' \t«»"“”‘’\'()-–—:*') == '' or coda.endswith(('«', '"', '“', ':', '—', '–', '(', ')', ']', '*'))
             ultima = re.findall(r"[\wÀ-ÿ]+", prima.lower())
             ultima = ultima[-1] if ultima else ''
             token = m.group(1).split()
@@ -98,11 +100,6 @@ RE_LUOGO = re.compile(rf"(?<![\w’'])((?i:{_PAROLE_LUOGO})(?:[ \t]+(?:{PAROLA_M
 # "a Torino", "verso Monza", "presso Villa Reale"
 RE_LUOGO_PREP = re.compile(rf"(?<![\w’'])(?:a|in|presso|verso)[ \t]+({PAROLA_MAIUSC}(?:[ \t]+{PAROLA_MAIUSC})?)(?![\w’'])")
 
-RE_INDIZIO = re.compile(r'registr|messagg|trasmission|pausa|frase|tracc|impront|segnal|prov[ae]\b|indizi|foto|chiav|sangue|'
-                        r'bigliett|codice|ripet|stess[aoie]\b|sospett|manca|cancellat|interrott|originali|dettagli', re.I)
-RE_EVENTO = re.compile(r'quarantena|evacua|attacc|esplos|incendi|fuga|fugg|scompar|arrivat|partit|chiamat|interromp|ordina|'
-                       r'chius|croll|contagi|inseguon|\b(?:è|sono|ha|hanno)\s+\w+(?:ato|ata|ati|ate|uto|uta|ito|ita)\b', re.I)
-
 
 def chiave(testo):
     return re.sub(r'\s+', ' ', senza_accenti(testo.lower())).strip(' .,;:!?«»"')
@@ -124,25 +121,71 @@ def estrai_luoghi(testo, persone_note=()):
     return [{'nome': n} for n in trovati.values()]
 
 
-def titolo_breve(frase, parole_max=7):
-    p = frase.strip(' «»"').split()
-    return ' '.join(p[:parole_max]).rstrip('.,;:') + ('…' if len(p) > parole_max else '')
+
+# "**Eventi:**", "**Indizi:**", "**Ipotesi:**" ... e voci "- **Nome breve**: dettaglio [G1-03]"
+RE_SEZIONE = re.compile(r'^\s*(?:[-*•]\s*)?\*\*\s*(risposta|eventi|evento|indizi|indizio|ipotesi|dubbi|evidenze)\s*:?\s*\*\*\s*:?\s*', re.I)
+RE_VOCE = re.compile(r'^\s*(?:[-*•]\s+)?\*\*([^*]{2,60}?)\s*:?\*\*\s*[:—–-]?\s*(.+)$')
+RE_ID = re.compile(r'\[([^\]]+)\]')
+SEZIONI_ELEMENTI = {'eventi': 'evento', 'evento': 'evento', 'indizi': 'indizio', 'indizio': 'indizio', 'ipotesi': 'ipotesi'}
+SOGLIA_RISCONTRO = {'evento': 0.35, 'indizio': 0.35, 'ipotesi': 0.2}   # parte delle parole della voce presenti nel documento citato
+NOMI_GENERICI = {'evento', 'eventi', 'indizio', 'indizi', 'ipotesi'}
 
 
-def estrai_con_regole(fonti):
-    """Indizi ed eventi senza modello: frasi delle fonti con parole tipiche. Serve in demo e come riserva."""
-    indizi, eventi = [], []
+def voci_della_risposta(risposta):
+    """Eventi, indizi e ipotesi che il modello ha scritto con un nome: [{genere, nome, testo}]."""
+    sezione, voci = None, []
+    for riga in risposta.splitlines():
+        m = RE_SEZIONE.match(riga)
+        if m:
+            sezione = SEZIONI_ELEMENTI.get(m.group(1).lower())
+            riga = riga[m.end():]
+        v = RE_VOCE.match(riga) if sezione else None
+        if v and chiave(v.group(1)) not in NOMI_GENERICI:
+            voci.append({'genere': sezione, 'nome': v.group(1).strip(' :'), 'testo': v.group(2).strip()})
+    return voci
+
+
+def _radici(testo):
+    """Prime 5 lettere delle radici: "registrati" e "registrazione" contano come la stessa parola."""
+    return {p[:5] for p in parole(testo)}
+
+
+def _somiglianza(cercate, testo):
+    comuni = len(cercate & _radici(testo))
+    return comuni / max(1, len(cercate)) if comuni >= 2 else 0.0
+
+
+def riscontro(testo, fonti, soglia, nome=''):
+    """La frase dei documenti citati ([ID]) che conferma la voce, oppure None se non c'è un riscontro vero.
+    Il confronto si fa con tutto il documento citato (il modello riformula e unisce più frasi);
+    come citazione si mostra la frase con più parole in comune."""
+    ids = {x.strip() for m in RE_ID.findall(testo) for x in re.split(r'[,;]', m)}
+    cercate = _radici(f'{nome} {RE_ID.sub("", testo)}')
+    migliore, punteggio = None, 0.0
     for f in fonti:
-        for frase in frasi(f['testo']):
-            if frase.upper().startswith('ID ') or len(frase.split()) < 5:
-                continue
-            ni, ne = len(RE_INDIZIO.findall(frase)), len(RE_EVENTO.findall(frase))
-            if not ni and not ne:
-                continue
-            voce = {'titolo': titolo_breve(frase), 'doc': f['doc'], 'citazione': frase, 'verificato': True}
-            (indizi if ni >= ne else eventi).append((max(ni, ne), voce))
-    scegli = lambda elenco: [v for _, v in sorted(elenco, key=lambda x: -x[0])[:3]]
-    return scegli(indizi), scegli(eventi)
+        if f['doc'] not in ids:
+            continue
+        s = _somiglianza(cercate, f['testo'])
+        if s > punteggio:
+            elenco = [x for x in frasi(f['testo']) if not x.upper().startswith('ID ')]
+            frase = max(elenco, key=lambda x: len(cercate & _radici(x)), default='')
+            migliore, punteggio = {'doc': f['doc'], 'citazione': frase}, s
+    return migliore if punteggio >= soglia else None
+
+
+def estrai_voci_nominate(risposta, fonti):
+    """Voci per la colonna destra, solo se i documenti citati le confermano.
+    Ritorna (indizi, eventi): indizi = "Nome (indizio)" / "Nome (ipotesi)", eventi = "Nome"."""
+    indizi, eventi = [], []
+    for v in voci_della_risposta(risposta):
+        r = riscontro(v['testo'], fonti, SOGLIA_RISCONTRO[v['genere']], v['nome'])
+        if not r:
+            continue
+        evento = v['genere'] == 'evento'
+        (eventi if evento else indizi).append({
+            'titolo': v['nome'] if evento else f"{v['nome']} ({v['genere']})", 'genere': v['genere'],
+            'descrizione': RE_ID.sub('', v['testo']).strip(), **r, 'verificato': True})
+    return indizi, eventi
 
 
 def ms(t):

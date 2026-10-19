@@ -4,20 +4,23 @@ import sys
 from pathlib import Path
 
 # ---------------------------------------------------------------- configurazione
-QUI = Path(__file__).resolve().parent
-PROGETTO = QUI.parent
+QUI = Path(__file__).resolve().parent                 # interfaccia/backend (codice Python)
+INTERFACCIA = QUI.parent                              # interfaccia/
+PROGETTO = INTERFACCIA.parent                         # Lazarus_Protocol/
 CARTELLA_DATI = PROGETTO / 'lazzaro' / 'dati'          # documenti estratti dagli ZIP della squadra
-CARTELLA_CARICATI = QUI / 'caricati'                  # file aggiunti con il pulsante +
-CARTELLA_REGISTRO = QUI / 'registro'                  # storico, cache embedding, esclusioni
+CARTELLA_CARICATI = INTERFACCIA / 'caricati'          # file aggiunti con il pulsante +
+CARTELLA_REGISTRO = INTERFACCIA / 'registro'          # storico, cache embedding, esclusioni
 DIARIO_NOTEBOOK = PROGETTO / 'lazzaro' / 'diario_chat.jsonl'
-STATICI = QUI / 'static'
+STATICI = INTERFACCIA / 'frontend'                    # pagine, stile e script del browser
 
 OLLAMA = 'http://127.0.0.1:11434'
-MODELLO = 'qwen3:8b'
+MODELLO = 'gemma4:12b'
 MODELLO_EMBEDDING = 'bge-m3'      # se manca in Ollama si usa solo la ricerca per parole chiave
 TOP_K = 6
-NUM_CTX = 8192
+NUM_CTX = 4096
 NUM_PREDICT = 350
+NUM_PREDICT_CONVERSAZIONE = 80
+TEMPERATURA = 0.5
 PORTA = 8765
 MAX_UPLOAD = 50 * 1024 * 1024
 # Luoghi, indizi ed eventi: estratti dal modello DOPO la risposta, quindi senza rallentarla.
@@ -51,7 +54,7 @@ ISTRUZIONI = (
 # (avvia con: uv run --with requests ...); se manca, restano le impostazioni di questo file.
 LAZARUS = None
 def _collega_app_lazarus():
-    global LAZARUS, MODELLO, NUM_PREDICT, NUM_CTX
+    global LAZARUS, MODELLO, NUM_PREDICT, NUM_CTX, NUM_PREDICT_CONVERSAZIONE, TEMPERATURA
     import os
     candidati = [os.environ.get('LAZARUS_APP')] + [p / 'app_lazarus' for p in QUI.parents]
     for c in candidati:
@@ -64,6 +67,7 @@ def _collega_app_lazarus():
                 return
             LAZARUS = lz
             MODELLO, NUM_PREDICT, NUM_CTX = lz.MODELLO, lz.MAX_TOKEN, lz.NUM_CTX
+            NUM_PREDICT_CONVERSAZIONE, TEMPERATURA = lz.MAX_TOKEN_CONVERSAZIONE, lz.TEMPERATURA
             print(f'Collegato a app_lazarus: {Path(c)} (modello {MODELLO}, istruzioni di lazarus.py)')
             return
 _collega_app_lazarus()
@@ -73,10 +77,25 @@ def istruzioni_correnti():
     return LAZARUS.leggi_istruzioni() if LAZARUS else ISTRUZIONI
 
 
+def classifica_domanda(domanda, modello, titoli, nomi, demo=False):
+    """(conversazione, motivo): il messaggio riguarda il caso? Si decide prima di cercare nei documenti.
+    Regole e controllo col modello sono in lazarus.py; in demo solo le regole (non c'è un modello)."""
+    if not LAZARUS:
+        return False, 'controllo non disponibile: cerco nei documenti'
+    if demo:
+        return (True, 'saluto o cortesia (regole)') if LAZARUS.e_conversazione(domanda) else (False, 'demo: solo regole')
+    return LAZARUS.classifica_domanda(domanda, modello, titoli, nomi)
+
+
+def istruzioni_conversazione():
+    return LAZARUS.ISTRUZIONI_CONVERSAZIONE if LAZARUS else ISTRUZIONI
+
+
 ESTENSIONI_TESTO = {'.txt', '.md', '.csv', '.json', '.jsonl', '.log'}
 ESTENSIONI_OK = ESTENSIONI_TESTO | {'.docx', '.pdf', '.zip'}
 
 STRUMENTI = {
+    'controlla_pertinenza': 'Decide se il messaggio riguarda il caso (regole, poi il modello con i soli titoli): se no, si conversa senza documenti.',
     'cerca_parole_chiave': 'Ricerca BM25 sulle parole della domanda (ottima per nomi e codici).',
     'cerca_semantica': 'Ricerca per significato con embedding locali in Ollama.',
     'fondi_risultati': 'Unisce le due classifiche (Reciprocal Rank Fusion) e sceglie i brani migliori.',

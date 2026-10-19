@@ -1,0 +1,8 @@
+{
+  "_come_aggiungere": "Metti l'immagine in questa cartella e aggiungi una riga: sesso f/m, misure dell'immagine e riquadro quadrato del viso (centro x, y e lato, in pixel) usato per la miniatura rotonda.",
+  "volti": [
+    {"id": "m01", "file": "m01.jpg", "sesso": "m", "larghezza": 1024, "altezza": 559, "viso": {"x": 540, "y": 200, "lato": 330}},
+    {"id": "m02", "file": "m02.jpg", "sesso": "m", "larghezza": 1024, "altezza": 559, "viso": {"x": 505, "y": 125, "lato": 210}},
+    {"id": "f01", "file": "f01.jpg", "sesso": "f", "larghezza": 1024, "altezza": 559, "viso": {"x": 538, "y": 185, "lato": 320}}
+  ]
+}

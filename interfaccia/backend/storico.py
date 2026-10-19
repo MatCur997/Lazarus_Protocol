@@ -76,11 +76,16 @@ class Storico:
         for v in self.voci:
             visti = set()
             for e in (v.get('elementi') or {}).get(tipo, []):
+                # solo voci con riscontro nei documenti; indizi ed eventi di prima (frasi tagliate, senza nome) non si mostrano
+                if e.get('verificato') is False or (tipo in ('indizi', 'eventi') and not e.get('genere')):
+                    continue
                 k = chiave(e.get(campo, ''))
                 if not k or k in visti or f'{tipo}|{k}' in self.esclusi:
                     continue
                 visti.add(k)
-                r = raccolta.setdefault(k, {'chiave': k, 'nome': e[campo], 'citazioni': 0, 'fonti': [], 'risposte': [], 'ultima': v['ora']})
+                r = raccolta.setdefault(k, {'chiave': k, 'nome': e[campo], 'citazioni': 0, 'fonti': [], 'risposte': [], 'ultima': v['ora'],
+                                            'genere': e.get('genere'), 'descrizione': ''})
+                r['descrizione'] = e.get('descrizione') or r['descrizione']   # la più recente
                 r['citazioni'] += 1
                 r['ultima'] = v['ora']
                 r['risposte'].append(v['id'])

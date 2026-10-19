@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accesso segreto · Lazzaro</title>
+<script src="tema.js"></script>
+<link rel="stylesheet" href="app.css">
+<style>
+  /* Bacheca dell'investigatore: sughero, letterine con la puntina, fili rossi. Colori solo per questa pagina. */
+  /* puntine: un colore per ogni tipo di informazione */
+  :root { --sughero: #b48a5c; --sughero-scuro: #9c7448; --filo: #b3262b; --filo-acceso: #e0342f; --busta: #f6f1e6; --busta-bordo: #d8cdb8;
+    --p-indizio: #c0302b; --p-ipotesi: #e0a91f; --p-evento: #3c9a5f; --p-persona: #2f6fc0; }
+  :root[data-tema="scuro"] { --sughero: #5b4530; --sughero-scuro: #4a3826; --filo: #c63a35; --filo-acceso: #ff5a4f; --busta: #2c2b29; --busta-bordo: #4a4741;
+    --p-indizio: #d8433c; --p-ipotesi: #f0bb35; --p-evento: #4fb174; --p-persona: #4a8ae0; }
+  body.bacheca { min-height: 100vh; display: flex; flex-direction: column; background: var(--testata); }
+  .barra-bacheca { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 24px; background: var(--sfondo) var(--carta-grana);
+    border-bottom: 1px solid var(--bordo); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--tenue); }
+  .barra-bacheca b { color: var(--testo); font-weight: 700; }
+  .legenda-filo { display: inline-flex; align-items: center; gap: 6px; }
+  .legenda-filo i { width: 22px; height: 2px; background: var(--filo); display: inline-block; }
+  .sughero { flex: 1; overflow: auto; position: relative;
+    background-color: var(--sughero);
+    background-image: radial-gradient(rgba(0, 0, 0, .18) 1px, transparent 1.4px), radial-gradient(rgba(255, 255, 255, .12) 1px, transparent 1.6px),
+      radial-gradient(rgba(0, 0, 0, .10) 2px, transparent 2.6px), var(--carta-grana);
+    background-size: 7px 7px, 11px 11px, 23px 23px, auto; background-position: 0 0, 3px 5px, 9px 2px, 0 0;
+    box-shadow: inset 0 0 0 10px var(--sughero-scuro), inset 0 0 40px rgba(0, 0, 0, .35); }
+  .tavola { position: relative; margin: 0 auto; }
+  .tavola svg.fili { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .fili path { fill: none; stroke: var(--filo); stroke-width: 2; stroke-linecap: round; filter: drop-shadow(1px 2px 1px rgba(0, 0, 0, .35)); transition: stroke .15s, stroke-width .15s, opacity .15s; }
+  .tavola.attiva .fili path { opacity: .25; }
+  .tavola.attiva .fili path.acceso { opacity: 1; stroke: var(--filo-acceso); stroke-width: 3; }
+
+  .letterina { position: absolute; width: 132px; height: 92px; background: var(--busta) var(--carta-grana); border: 1px solid var(--busta-bordo);
+    box-shadow: 2px 6px 10px -4px rgba(0, 0, 0, .55); cursor: pointer; transition: transform .15s, box-shadow .15s; padding: 0; color: var(--testo); }
+  .letterina::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 52%; background: linear-gradient(to bottom right, transparent 49.5%, var(--busta-bordo) 50%, transparent 51%),
+    linear-gradient(to bottom left, transparent 49.5%, var(--busta-bordo) 50%, transparent 51%); background-size: 50% 100%; background-position: 0 0, 100% 0; background-repeat: no-repeat; }
+  .letterina .domanda-segno { position: absolute; left: 0; right: 0; top: 30px; text-align: center; font: 900 34px/1 var(--titoli); }
+  .letterina .numero { position: absolute; left: 6px; bottom: 4px; font: 400 9.5px/1 var(--mono); letter-spacing: .8px; color: var(--debole); }
+  .letterina .genere { position: absolute; right: 6px; bottom: 4px; font: 400 9px/1 var(--mono); letter-spacing: 1px; text-transform: uppercase;
+    border: 1px solid currentColor; padding: 2px 4px; color: var(--debole); }
+  .letterina.ipotesi .genere { color: var(--filo); }
+  .letterina .puntina { --puntina: var(--p-indizio); position: absolute; left: 50%; top: -7px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, .75), var(--puntina) 45%, rgba(0, 0, 0, .55) 100%), var(--puntina);
+    box-shadow: 1px 3px 3px rgba(0, 0, 0, .5); z-index: 2; }
+  .letterina.ipotesi .puntina { --puntina: var(--p-ipotesi); }
+  .letterina.evento .puntina { --puntina: var(--p-evento); }
+  .letterina.persona .puntina { --puntina: var(--p-persona); }
+  .letterina.ipotesi .genere { color: #9a6a12; }
+  .letterina.evento .genere { color: var(--p-evento); }
+  /* persona: fototessera con il volto nascosto (si vede passando il mouse) */
+  .letterina.persona { width: 112px; height: 136px; padding: 8px 8px 0; background: var(--busta); }
+  .letterina.persona::before { display: none; }
+  .letterina.persona .foto { display: grid; place-items: center; height: 92px; background: #1c1c1e; color: #e9e2d0; font: 900 34px/1 var(--titoli);
+    background-image: radial-gradient(circle at 50% 38%, #3a3a3e 0 18px, transparent 19px), radial-gradient(ellipse at 50% 100%, #3a3a3e 0 34px, transparent 35px); }
+  .letterina.persona .domanda-segno { position: static; }
+  .letterina.persona .genere { color: var(--p-persona); }
+  .legenda-puntine { display: inline-flex; gap: 12px; }
+  .legenda-puntine span { display: inline-flex; align-items: center; gap: 5px; }
+  .legenda-puntine i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: inset -2px -2px 3px rgba(0, 0, 0, .35); }
+  .riquadro .ritratto { height: 170px; margin: -14px -16px 10px; background-size: cover; background-position: center 22%; border-bottom: 1px solid var(--bordo); }
+  .riquadro .frase { font-size: 12px; margin: 4px 0; }
+  .riquadro .frase .etichetta { margin-right: 6px; }
+  .letterina:hover, .letterina:focus-visible { transform: rotate(0deg) scale(1.08) !important; box-shadow: 4px 12px 18px -6px rgba(0, 0, 0, .6); z-index: 5; outline: none; }
+
+  .riquadro { position: absolute; z-index: 10; width: 320px; background: var(--pannello) var(--carta-grana); border: 1px solid var(--bordo);
+    box-shadow: 0 18px 40px -16px rgba(0, 0, 0, .6); padding: 14px 16px; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; }
+  .riquadro.visibile { opacity: 1; transform: none; }
+  .riquadro h3 { margin: 4px 0 8px; font: 900 16px/1.15 var(--titoli); text-transform: uppercase; }
+  .riquadro .righe { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .riquadro .cit { border-left: 3px solid var(--testo); background: var(--scheda); padding: 6px 9px; font-size: 12px; margin: 6px 0; }
+  .riquadro .desc { font-size: 12.5px; margin: 6px 0; }
+  .riquadro .etichetta-sez { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--debole); margin-top: 8px; }
+  .riquadro ul { margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: var(--tenue); }
+  .vuoto-bacheca { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #f6f1e6; font-size: 13px; text-shadow: 0 1px 2px rgba(0, 0, 0, .6); }
+  .vuoto-bacheca b { display: block; font: 900 22px/1.2 var(--titoli); text-transform: uppercase; margin-bottom: 6px; }
+</style>
+</head>
+<body class="bacheca">
+<header class="testata" style="padding-bottom:14px">
+  <div class="riga-alta">
+    <div class="marchio">
+      <div class="logo"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="1"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+      <div>Lazzaro<small>Accesso segreto · bacheca dell'investigatore</small></div>
+    </div>
+    <div class="spazio"></div>
+    <button class="tema-btn" id="tema" title="Cambia tema: chiaro (carta) o scuro">
+      <span class="per-scuro"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Scuro</span>
+      <span class="per-chiaro"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Chiaro</span>
+    </button>
+  </div>
+</header>
+<div class="barra-bacheca">
+  <span id="conteggio">Carico la bacheca…</span>
+  <span class="legenda-puntine"><span><i style="background:var(--p-indizio)"></i>indizio</span><span><i style="background:var(--p-ipotesi)"></i>ipotesi</span>
+    <span><i style="background:var(--p-evento)"></i>evento</span><span><i style="background:var(--p-persona)"></i>persona</span></span>
+  <span class="legenda-filo" title="Collega le voci più vicine: contenuto simile, stessa risposta, stessa persona o stesso documento; ogni persona è legata alle voci che la riguardano"><i></i>collegamento</span>
+  <span class="spazio"></span>
+  <span>Mouse sopra: leggi · clic: apri il fascicolo</span>
+  <button class="btn-piccolo grigio" id="ricarica" title="Ricarica gli indizi trovati">Aggiorna</button>
+</div>
+<main class="sughero" id="sughero">
+  <div class="tavola" id="tavola"><svg class="fili" id="fili"></svg></div>
+  <div class="riquadro" id="riquadro"></div>
+</main>
+
+<script src="comune.js"></script>
+<script>
+// Disegna la bacheca da /api/bacheca: nodi (indizi e ipotesi verificati) e fili (motivi del collegamento).
+// La posizione di ogni lettera dipende solo dal suo nome: riaprendo la pagina resta nello stesso punto.
+const LARGO = 132, ALTO = 92, CELLA_X = 230, CELLA_Y = 190, MARGINE = 70;
+let dati = { nodi: [], fili: [] };
+
+function hash(t) { let h = 2166136261; for (const c of t) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+const casuale = (seme, n) => ((hash(seme + '|' + n) % 1000) / 1000) * 2 - 1;   // tra -1 e 1, sempre uguale per lo stesso seme
+
+function posizioni(nodi) {
+  // griglia con colonne in proporzione allo schermo; ogni lettera prende la cella libera più vicina alla sua "preferita"
+  const colonne = Math.max(2, Math.round(Math.sqrt(nodi.length * (innerWidth / Math.max(innerHeight, 400)) * 1.1)));
+  const righe = Math.max(2, Math.ceil(nodi.length / colonne) + 1);
+  const occupate = new Set(), pos = {};
+  for (const n of [...nodi].sort((a, b) => a.id.localeCompare(b.id))) {
+    const pref = hash(n.id) % (colonne * righe);
+    let cella = pref;
+    for (let d = 0; occupate.has(cella); d++) cella = (pref + d) % (colonne * righe);
+    occupate.add(cella);
+    const cx = cella % colonne, cy = Math.floor(cella / colonne);
+    pos[n.id] = { x: MARGINE + cx * CELLA_X + casuale(n.id, 'x') * 34, y: MARGINE + cy * CELLA_Y + casuale(n.id, 'y') * 28, r: casuale(n.id, 'r') * 7 };
+  }
+  return { pos, larghezza: MARGINE * 2 + colonne * CELLA_X, altezza: MARGINE * 2 + righe * CELLA_Y };
+}
+
+function disegna() {
+  const tavola = $('#tavola');
+  tavola.querySelectorAll('.letterina, .vuoto-bacheca').forEach((e) => e.remove());
+  const conta = (n, uno, tanti) => `<b>${n}</b> ${n === 1 ? uno : tanti}`;
+  const quanti = (g) => dati.nodi.filter((n) => n.genere === g).length;
+  $('#conteggio').innerHTML = [conta(quanti('indizio'), 'indizio', 'indizi'), conta(quanti('ipotesi'), 'ipotesi', 'ipotesi'),
+    conta(quanti('evento'), 'evento', 'eventi'), conta(quanti('persona'), 'persona', 'persone'), conta(dati.fili.length, 'filo', 'fili')].join(' · ')
+    + ` · aggiornata alle ${esc(dati.aggiornata || '')}`;
+  if (!dati.nodi.length) {
+    tavola.style.width = '100%'; tavola.style.height = '100%';
+    $('#fili').innerHTML = '';
+    tavola.insertAdjacentHTML('beforeend', '<div class="vuoto-bacheca"><div><b>Bacheca vuota</b>Fai domande sul caso: gli indizi verificati verranno appesi qui.</div></div>');
+    return;
+  }
+  const { pos, larghezza, altezza } = posizioni(dati.nodi);
+  tavola.style.width = Math.max(larghezza, $('#sughero').clientWidth) + 'px';
+  tavola.style.height = Math.max(altezza, $('#sughero').clientHeight) + 'px';
+  const scarto = Math.max(0, ($('#sughero').clientWidth - larghezza) / 2);   // centra la griglia se lo schermo è più largo
+  const largaCarta = (id) => (id.startsWith('persone:') ? 112 : LARGO);   // fototessera più stretta della busta
+  const puntina = (id) => ({ x: pos[id].x + scarto + largaCarta(id) / 2, y: pos[id].y });
+  // fili: curve che "cadono" un po' verso il basso, come un filo vero
+  $('#fili').innerHTML = dati.fili.map((f, i) => {
+    const a = puntina(f.da), b = puntina(f.a);
+    const cade = Math.min(80, Math.hypot(b.x - a.x, b.y - a.y) * 0.18);
+    return `<path data-i="${i}" d="M${a.x},${a.y} Q${(a.x + b.x) / 2},${(a.y + b.y) / 2 + cade} ${b.x},${b.y}"/>`;
+  }).join('');
+  dati.nodi.forEach((n, i) => {
+    const p = pos[n.id];
+    const interno = n.genere === 'persona'
+      ? `<span class="foto"><span class="domanda-segno">?</span></span>`             // fototessera: il volto si vede passando il mouse
+      : `<span class="domanda-segno">?</span>`;
+    tavola.insertAdjacentHTML('beforeend', `<button class="letterina ${n.genere}" data-id="${esc(n.id)}" style="left:${p.x + scarto}px;top:${p.y}px;transform:rotate(${p.r}deg)"
+      aria-label="${esc(n.genere)} ${esc(n.nome)}"><span class="puntina"></span>${interno}
+      <span class="numero">N. ${String(i + 1).padStart(2, '0')}</span><span class="genere">${esc(n.genere)}</span></button>`);
+  });
+}
+
+function mostraRiquadro(el) {
+  const n = dati.nodi.find((x) => x.id === el.dataset.id);
+  if (!n) return;
+  const collegati = dati.fili.filter((f) => f.da === n.id || f.a === n.id);
+  $('#tavola').classList.add('attiva');
+  document.querySelectorAll('#fili path').forEach((p) => p.classList.toggle('acceso', collegati.includes(dati.fili[p.dataset.i])));
+  const nomeDi = (id) => dati.nodi.find((x) => x.id === id)?.nome || id;
+  const r = $('#riquadro');
+  const persona = n.genere === 'persona';
+  r.innerHTML = `${persona && n.volto ? `<div class="ritratto" style="background-image:url('${esc(n.volto.file)}')"></div>` : ''}
+    <div class="righe"><span class="etichetta bordeaux">${esc(n.genere)}</span>${n.documenti.map((d) => `<span class="etichetta">${esc(d)}</span>`).join('')}
+      <span class="etichetta">in ${n.citazioni} ${n.citazioni === 1 ? 'risposta' : 'risposte'}</span></div>
+    <h3>${esc(n.nome)}</h3>
+    ${n.descrizione ? `<div class="desc">${esc(n.descrizione)}</div>` : ''}
+    ${persona
+      ? `${n.frasi.length ? `<div class="etichetta-sez">Nei documenti</div>${n.frasi.map((f) => `<div class="frase"><span class="etichetta">${esc(f.doc)}</span>${esc(f.frase)}</div>`).join('')}` : ''}
+         ${n.alias.length ? `<div class="etichetta-sez">Chiamata anche</div><div class="frase">${esc(n.alias.join(', '))}</div>` : ''}`
+      : `<div class="etichetta-sez">Riscontro nel documento</div><div class="cit">${esc(n.citazione)}</div>`}
+    ${n.persone.length ? `<div class="etichetta-sez">Persone</div><ul><li>${n.persone.map(esc).join('</li><li>')}</li></ul>` : ''}
+    ${collegati.length ? `<div class="etichetta-sez">Fili rossi</div><ul>${collegati.map((f) => `<li><b>${esc(nomeDi(f.da === n.id ? f.a : f.da))}</b>: ${esc(f.motivi.join(', '))}</li>`).join('')}</ul>` : ''}
+    ${n.domande.length ? `<div class="etichetta-sez">Trovato rispondendo a</div><ul>${n.domande.slice(-3).map((d) => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}`;
+  // a destra della lettera, oppure a sinistra se non c'è spazio
+  const s = $('#sughero'), box = el.getBoundingClientRect(), base = s.getBoundingClientRect();
+  let x = box.right - base.left + s.scrollLeft + 14;
+  if (box.right + 14 + 320 > base.right) x = box.left - base.left + s.scrollLeft - 14 - 320;
+  r.style.left = Math.max(8, x) + 'px';
+  r.style.top = Math.max(8, box.top - base.top + s.scrollTop - 10) + 'px';
+  r.classList.add('visibile');
+}
+function nascondiRiquadro() {
+  $('#riquadro').classList.remove('visibile');
+  $('#tavola').classList.remove('attiva');
+}
+
+$('#tavola').addEventListener('mouseover', (e) => { const l = e.target.closest('.letterina'); if (l) mostraRiquadro(l); });
+$('#tavola').addEventListener('mouseout', (e) => { if (e.target.closest('.letterina') && !e.relatedTarget?.closest?.('.letterina')) nascondiRiquadro(); });
+$('#tavola').addEventListener('focusin', (e) => { const l = e.target.closest('.letterina'); if (l) mostraRiquadro(l); });
+$('#tavola').addEventListener('focusout', nascondiRiquadro);
+$('#tavola').addEventListener('click', (e) => {
+  const l = e.target.closest('.letterina');
+  const n = l && dati.nodi.find((x) => x.id === l.dataset.id);
+  if (!n) return;
+  window.open(n.tipo === 'persone' ? `persona.html?nome=${encodeURIComponent(n.chiave)}`
+    : `persona.html?tipo=${encodeURIComponent(n.tipo)}&chiave=${encodeURIComponent(n.chiave)}`, '_blank');
+});
+
+async function carica() {
+  try {
+    const r = await fetch('/api/bacheca', { cache: 'no-store' });
+    dati = await r.json();
+  } catch (e) {
+    $('#conteggio').textContent = 'Server non raggiungibile: riavvia l\'interfaccia e riprova.';
+    return;
+  }
+  disegna();
+}
+$('#ricarica').addEventListener('click', carica);
+// tornando su questa scheda (dopo aver fatto altre domande) la bacheca si aggiorna da sola
+document.addEventListener('visibilitychange', () => { if (!document.hidden) carica(); });
+let attesa;
+window.addEventListener('resize', () => { clearTimeout(attesa); attesa = setTimeout(disegna, 150); });
+carica();
+</script>
+</body>
+</html>

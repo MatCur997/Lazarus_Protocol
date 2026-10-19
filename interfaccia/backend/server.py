@@ -5,15 +5,17 @@ solo con Ollama in locale: nessun dato lascia il computer.
 
 Dove si cambia cosa:
   config.py   impostazioni, prompt, collegamento con app_lazarus
-  motore.py   i tre passi di una risposta: cerca_fonti -> costruisci_messaggi -> genera
+  motore.py   i passi di una risposta: controlla_pertinenza -> cerca_fonti -> costruisci_messaggi -> genera
   indice.py   documenti, brani, ricerca BM25 + embedding
   modello.py  chiamate a Ollama
   testo.py    funzioni sul testo (nomi, luoghi, indizi)
   storico.py  storico delle domande
+  volti.py    foto fissa per ogni persona (sesso dedotto dal nome)
   server.py   questo file: rotte HTTP
 
-Avvio:   python interfaccia/server.py            (con Ollama)
-         python interfaccia/server.py --demo     (senza modello, per provare l'interfaccia)
+Avvio:   python interfaccia/backend/server.py            (con Ollama)
+         python interfaccia/backend/server.py --demo     (senza modello, per provare l'interfaccia)
+Le pagine servite sono in interfaccia/frontend/. Mappa completa: ARCHITETTURA.md nella cartella del progetto.
 """
 import argparse
 import io
@@ -38,15 +40,19 @@ from config import (CARTELLA_CARICATI, CARTELLA_REGISTRO, ESTENSIONI_OK, ESTRAZI
 from indice import Indice
 from modello import estrai_con_modello, modelli_disponibili, precarica, verifica_citazione
 from storico import Storico
-from testo import chiave, estrai_con_regole, estrai_luoghi, frasi, ms
+from volti import Volti
+from testo import chiave, estrai_luoghi, estrai_voci_nominate, frasi, ms, parole
 from indice import testo_da_bytes
 
 # ------------------------------------------------------------------------- server
 STATO = {'modello': cfg.MODELLO, 'demo': False}
 INDICE: Indice = None
 STORICO: Storico = None
+VOLTI: Volti = None
 EVENTI_CARICAMENTO = []   # chiamate a carica_file, per il pannello strumenti
 TURNO = {'n': 0}          # numero dell'ultima domanda: serve a interrompere estrazioni ormai superate
+FILI_PER_VOCE = 2         # bacheca: collegamenti più forti tenuti per ogni indizio
+FILO_MINIMO = 1.0         # bacheca: punteggio minimo perché due indizi siano collegati
 BLOCCO_TURNO = threading.Lock()
 
 TIPI = {'.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -87,6 +93,7 @@ class Gestore(BaseHTTPRequestHandler):
             '/api/documento': lambda: self.api_documento(q.get('id', '')),
             '/api/cerca': lambda: self.api_cerca(q.get('q', '')),
             '/api/elementi': self.api_elementi,
+            '/api/bacheca': self.api_bacheca,
             '/api/elemento': lambda: self.api_elemento(q.get('tipo', ''), q.get('chiave', '')),
         }
         if url.path in rotte:
@@ -173,11 +180,82 @@ class Gestore(BaseHTTPRequestHandler):
                 voce['estratto'] = next((f['citazione'] for f in r['fonti'] if f['verificato']), '')
                 if tipo == 'luoghi':
                     voce['documenti'] = len(self.passaggi(lambda k, c=r['chiave']: c in k))
-                    voce['verificato'] = voce['verificato'] or voce['documenti'] > 0
+                    voce['verificato'] = voce['documenti'] > 0
+                if not voce['verificato']:      # senza riscontro nei documenti non entra nella colonna
+                    continue
                 elenco.append(voce)
             elenco.sort(key=lambda x: (-x['citazioni'], x['ultima']), reverse=False)
             elenchi[tipo] = elenco
         self.json(elenchi)
+
+    def api_bacheca(self):
+        """Bacheca dell'investigatore. Nodi: indizi, ipotesi ed eventi verificati, e le persone trovate (con volto).
+        Fili: ogni persona è collegata alle voci che la riguardano; tra indizi/ipotesi/eventi ogni coppia riceve
+        un punteggio (contenuto simile, stessa risposta, stessa persona, stesso documento) e ogni voce tiene solo
+        i suoi FILI_PER_VOCE collegamenti più forti, così la bacheca resta leggibile.
+        Si ricalcola a ogni richiesta: le nuove voci compaiono appena trovate."""
+        domande = {v['id']: v['domanda'] for v in STORICO.voci}
+        nodi = []
+        for tipo in ('indizi', 'eventi'):
+            for r in STORICO.raccogli(tipo).values():
+                fonti = [f for f in r['fonti'] if f['verificato']]
+                if not fonti:
+                    continue
+                genere = r.get('genere') or ('evento' if tipo == 'eventi' else 'ipotesi' if r['nome'].endswith('(ipotesi)') else 'indizio')
+                testo = ' '.join([r['nome'], r.get('descrizione', '')] + [f['citazione'] for f in fonti])
+                nodi.append({'id': f"{tipo}:{r['chiave']}", 'tipo': tipo, 'chiave': r['chiave'],
+                             'nome': r['nome'].removesuffix(f' ({genere})'), 'genere': genere,
+                             'documenti': sorted({f['doc'] for f in fonti if f['doc']}), 'citazione': fonti[0]['citazione'],
+                             'descrizione': r.get('descrizione', ''), 'citazioni': r['citazioni'], 'ultima': r['ultima'],
+                             'risposte': r['risposte'], 'domande': [domande[i] for i in r['risposte'] if i in domande],
+                             'persone': INDICE.persone_in(testo)})
+        radici = {n['id']: {p[:5] for p in parole(f"{n['nome']} {n['descrizione']}")} for n in nodi}
+        candidati = []
+        for i, a in enumerate(nodi):
+            for b in nodi[i + 1:]:
+                ra, rb = radici[a['id']], radici[b['id']]
+                simile = len(ra & rb) / max(1, len(ra | rb))
+                stessi_doc = sorted(set(a['documenti']) & set(b['documenti']))
+                stessa_risposta = bool(set(a['risposte']) & set(b['risposte']))
+                stesse_persone = sorted(set(a['persone']) & set(b['persone']))
+                punteggio = 2 * simile + 0.5 * len(stessi_doc) + 1 * stessa_risposta + 0.5 * len(stesse_persone)
+                motivi = (['contenuto simile'] if simile >= 0.2 else []) + (['nati dalla stessa risposta'] if stessa_risposta else []) \
+                    + [f'riguardano {p}' for p in stesse_persone] + [f'stesso documento {d}' for d in stessi_doc]
+                if punteggio >= FILO_MINIMO and motivi:
+                    candidati.append((punteggio, a['id'], b['id'], motivi))
+        # ogni voce tiene i suoi collegamenti più forti; un filo resta se è tra i migliori di almeno una delle due
+        tenuti, per_voce = set(), defaultdict(int)
+        for punteggio, da, a, motivi in sorted(candidati, reverse=True):
+            if per_voce[da] < FILI_PER_VOCE or per_voce[a] < FILI_PER_VOCE:
+                tenuti.add((da, a))
+                per_voce[da] += 1
+                per_voce[a] += 1
+        fili = [{'da': da, 'a': a, 'motivi': motivi, 'forza': round(p, 2)} for p, da, a, motivi in candidati if (da, a) in tenuti]
+
+        # persone: una scheda con volto e i dati che abbiamo, e un filo verso ogni voce che le riguarda
+        for p in self.elenco_persone():
+            with INDICE.lock:
+                occorrenze = INDICE.persone.get(p['nome'], [])
+                alias = [a for a, n in INDICE.alias.items() if n == p['nome']]
+            frasi_viste, frasi_doc = set(), []
+            for o in occorrenze:
+                if o['frase'] not in frasi_viste and len(frasi_doc) < 2:
+                    frasi_viste.add(o['frase'])
+                    frasi_doc.append({'doc': o['doc'], 'frase': o['frase']})
+            id_p = f"persone:{p['nome']}"
+            collegate = [n for n in nodi if p['nome'] in n['persone']]
+            fili += [{'da': id_p, 'a': n['id'], 'motivi': [f"riguarda {p['nome']}"], 'forza': 2} for n in collegate]
+            documenti = sorted({o['doc'] for o in occorrenze})
+            nodi.append({'id': id_p, 'tipo': 'persone', 'chiave': p['nome'], 'nome': p['nome'], 'genere': 'persona',
+                         'documenti': documenti, 'frasi': frasi_doc, 'alias': alias, 'citazioni': p['citazioni'],
+                         'ultima': p['ultima'], 'volto': p.get('volto'), 'persone': [], 'domande': [],
+                         'descrizione': f"Compare in {len(documenti)} {'documento' if len(documenti) == 1 else 'documenti'}"
+                                        f" ({', '.join(documenti)}), è citata in {p['citazioni']} "
+                                        f"{'risposta' if p['citazioni'] == 1 else 'risposte'} ed è collegata a "
+                                        f"{len(collegate)} {'voce' if len(collegate) == 1 else 'voci'} della bacheca."})
+        for n in nodi:
+            n.pop('risposte', None)
+        self.json({'nodi': nodi, 'fili': fili, 'aggiornata': time.strftime('%H:%M:%S')})
 
     def api_elemento(self, tipo, k):
         if tipo not in ('luoghi', 'indizi', 'eventi'):
@@ -205,7 +283,9 @@ class Gestore(BaseHTTPRequestHandler):
             elenco = [{'nome': p, 'citazioni': c, 'ultima': ultima[p],
                        'documenti': len({o['doc'] for o in INDICE.persone.get(p, [])}),
                        'nei_documenti': p in INDICE.persone}
-                      for p, c in conteggio.items() if p not in INDICE.esclusi]
+                      for p, c in conteggio.items() if p not in INDICE.esclusi and p in INDICE.persone]   # solo con riscontro
+        for p in elenco:
+            p['volto'] = VOLTI.volto_di(p['nome'])      # foto fissa, assegnata alla prima comparsa
         elenco.sort(key=lambda x: (-x['citazioni'], x['nome']))
         return elenco
 
@@ -225,7 +305,8 @@ class Gestore(BaseHTTPRequestHandler):
                          for d, oo in per_doc.items() if d in INDICE.documenti]
         risposte = [{'id': v['id'], 'ora': v['ora'], 'domanda': v['domanda'], 'risposta': v['risposta'], 'modello': v['modello']}
                     for v in STORICO.voci if nome in v.get('persone', [])]
-        self.json({'nome': nome, 'alias': alias, 'documenti': documenti, 'risposte': risposte})
+        volto = VOLTI.volto_di(nome) if occorrenze else None   # solo per le persone che compaiono nei documenti
+        self.json({'nome': nome, 'alias': alias, 'documenti': documenti, 'risposte': risposte, 'volto': volto})
 
     # -- POST
     def do_POST(self):
@@ -326,18 +407,19 @@ class Gestore(BaseHTTPRequestHandler):
 
         t0 = time.perf_counter()
         strumenti = []
-        fonti = motore.cerca_fonti(INDICE, domanda, precedenti, strumenti)
+        conversazione = motore.controlla_pertinenza(INDICE, modello, domanda, strumenti, STATO['demo'])
+        fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, precedenti, strumenti)
         ricerca_ms = ms(t0)
         for s in strumenti:
             invia({'tipo': 'strumento', **s})
         invia({'tipo': 'fonti', 'fonti': fonti})
 
-        messaggi = motore.costruisci_messaggi(domanda, fonti, precedenti)
+        messaggi = motore.costruisci_messaggi(domanda, fonti, precedenti, conversazione)
 
         risposta, prima_parola, stat, errore = '', None, {}, None
         t_gen = time.perf_counter()
         try:
-            for tipo, valore in motore.genera(modello, messaggi, STATO['demo']):
+            for tipo, valore in motore.genera(modello, messaggi, STATO['demo'], conversazione):
                 if tipo == 'token':
                     if prima_parola is None:
                         prima_parola = ms(t0)
@@ -379,13 +461,13 @@ class Gestore(BaseHTTPRequestHandler):
             invia({'tipo': 'fine', 'voce': voce})
         except OSError:
             pass                     # pagina chiusa: estraiamo comunque gli elementi
-        if errore or not risposta:
+        if errore or not risposta or conversazione:   # un saluto non ha luoghi, indizi o eventi
             return
 
         # ---- dopo la risposta: luoghi, indizi, eventi (fuori dal tempo misurato)
         t = time.perf_counter()
         citate = [f for f in fonti if f['doc'] in risposta] or fonti[:3]
-        indizi, eventi = estrai_con_regole(citate)
+        indizi, eventi = estrai_voci_nominate(risposta, fonti)   # nomi scritti dal modello, verificati nei documenti
         luoghi, origine = [], 'regole'
         if ESTRAZIONE_CON_MODELLO and not STATO['demo']:
             try:
@@ -400,9 +482,13 @@ class Gestore(BaseHTTPRequestHandler):
             except Exception as e:      # il modello non è riuscito: restano le regole
                 origine = f'regole (modello non riuscito: {e})'
         noti = {chiave(x['nome']) for x in luoghi}
-        luoghi += [x for x in estrai_luoghi(risposta + '\n' + '\n'.join(f['testo'] for f in citate), persone)
+        # luoghi: scritti nei documenti E nominati nella risposta
+        luoghi += [x for x in estrai_luoghi('\n'.join(f['testo'] for f in citate), persone)
                    if chiave(x['nome']) not in noti and chiave(x['nome']) in chiave(risposta)]
-        elementi = {'luoghi': luoghi, 'indizi': indizi, 'eventi': eventi, 'origine': origine}
+        # nella colonna destra va solo ciò che ha un riscontro nei documenti
+        con_riscontro = lambda elenco: [e for e in elenco if e.get('verificato', True)]
+        elementi = {'luoghi': con_riscontro(luoghi), 'indizi': con_riscontro(indizi), 'eventi': con_riscontro(eventi),
+                    'origine': origine}
         strumento = {'nome': 'estrai_elementi', 'ms': ms(t),
                      'dettaglio': f'{len(luoghi)} luoghi, {len(indizi)} indizi, {len(eventi)} eventi · {origine}'}
         STORICO.imposta_elementi(voce, elementi, strumento)
@@ -414,7 +500,7 @@ class Gestore(BaseHTTPRequestHandler):
 
 
 def main():
-    global INDICE, STORICO
+    global INDICE, STORICO, VOLTI
     ap = argparse.ArgumentParser(description='Investigatore LAZZARO - interfaccia locale')
     ap.add_argument('--demo', action='store_true', help='nessun modello: risposte finte per provare l\'interfaccia')
     ap.add_argument('--modello', default=cfg.MODELLO)
@@ -438,6 +524,7 @@ def main():
     INDICE = Indice(embedding_attivo=not args.demo)
     INDICE.ricarica()
     STORICO = Storico(demo=args.demo, nome_doc=lambda d: INDICE.documenti.get(d, {}).get('nome', d))
+    VOLTI = Volti()
     print(f'Documenti: {len(INDICE.documenti)}  brani: {len(INDICE.brani)}  persone nei documenti: {len(INDICE.persone)}')
     if not args.demo:
         threading.Thread(target=INDICE.calcola_embedding, daemon=True).start()

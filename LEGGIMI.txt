@@ -5,7 +5,10 @@ Avvio: doppio clic su avvia_interfaccia.bat  ->  http://127.0.0.1:8765
 Senza modello (prova grafica): avvia_interfaccia.bat --demo
 
 Contenuto
-- app_lazarus\lazarus.py   backend: modello, istruzioni, risposta (usato dall'interfaccia)
-- interfaccia\             server + pagina web (static\)
-- lazzaro\dati\            documenti G1-01..03
+- app_lazarus\lazarus.py     BACKEND - logica dell'investigatore: modello, istruzioni, controllo di pertinenza
+- interfaccia\backend\       BACKEND - server Python: ricerca nei documenti, indizi, storico, API per il browser
+- interfaccia\frontend\      FRONTEND - pagine, stile e script del browser (chat, schede, bacheca)
+- interfaccia\registro\      DATI - storico delle domande, elementi trovati, cache
+- lazzaro\dati\              DATI - documenti G1-01..03
+Mappa completa (quale file fa cosa, funzione per funzione): ARCHITETTURA.md
 Per cambiare modello: righe MODELLO / EMBEDDING in avvia_interfaccia.bat.

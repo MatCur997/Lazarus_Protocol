@@ -1,6 +1,5 @@
 // Investigatore LAZZARO - interfaccia. Nessuna libreria esterna.
-const $ = (s, r = document) => r.querySelector(s);
-const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Usa $, esc, markdown e senzaMarkdown da comune.js (caricato prima in index.html).
 const sec = (ms) => (ms == null ? '—' : (ms / 1000).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' s');
 const media = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 
@@ -212,7 +211,7 @@ const docs = (n) => `${n} document${n === 1 ? 'o' : 'i'}`;
 
 function vocePersona(p) {
   return `<button class="persona-voce" data-tipo="persone" data-chiave="${esc(p.nome)}" title="Apri i passaggi in cui compare ${esc(p.nome)}">
-      <span class="iniziali" style="background:${colore(p.nome)}">${esc(iniziali(p.nome))}</span>
+      ${p.volto ? voltoHtml(p.volto, 42) : `<span class="iniziali" style="background:${colore(p.nome)}">${esc(iniziali(p.nome))}</span>`}
       <span class="info"><b>${esc(p.nome)}</b>
         <span>${p.nei_documenti ? docs(p.documenti) : '<span class="etichetta attenzione">non nei documenti</span>'}</span></span>
       <span class="numero" title="risposte che la citano">${p.citazioni}</span>
@@ -262,7 +261,7 @@ const PROVE = ['Cosa è successo?', 'Quale persona ha lasciato un messaggio?', '
 function benvenuto() {
   messaggi.innerHTML = `<div class="benvenuto">
     <h2>Pronto a indagare</h2>
-    <p>Rispondo solo usando i documenti e cito le fonti. Con <b>+</b> aggiungi file da esaminare.</p>
+    <p>Ragiono sui documenti e cito le fonti. Con <b>+</b> aggiungi file da esaminare.</p>
     <div>${PROVE.map((p) => `<button class="chip" data-prova>${esc(p)}</button>`).join('')}</div></div>`;
 }
 messaggi.addEventListener('click', (e) => {
@@ -285,63 +284,7 @@ function sistema(testo) {
   scorri();
 }
 
-// testo del modello -> HTML: citazioni [G1-02] cliccabili e persone evidenziate
-// Markdown (già con i caratteri speciali neutralizzati da esc): i simboli non restano visibili, diventano formattazione.
-// Supporta titoli, elenchi, citazioni, tabelle, grassetto, corsivo, ==evidenziato==, barrato e `codice`.
-const mdInline = (s) => s
-  .replace(/`([^`]+)`/g, '<code>$1</code>')
-  .replace(/\*\*(.+?)\*\*|__(.+?)__/g, (m, a, b) => `<b>${a ?? b}</b>`)
-  .replace(/(^|[^*\w])\*(?![\s*])([^*]+?)\*(?![*\w])/g, '$1<i>$2</i>')
-  .replace(/==(.+?)==/g, '<mark>$1</mark>')
-  .replace(/~~(.+?)~~/g, '<s>$1</s>');
-
-function markdown(testo) {
-  const righe = esc(testo).replace(/\r/g, '').split('\n');
-  const celle = (r) => r.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
-  const sepTabella = (r) => r !== undefined && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(r) && r.includes('-') && (r.includes('|') || /^\s*:?-{3,}/.test(r));
-  let h = '', i = 0;
-  while (i < righe.length) {
-    const r = righe[i];
-    let m;
-    if (!r.trim()) { i++; continue; }
-    if (r.includes('|') && sepTabella(righe[i + 1]) && righe[i + 1].includes('|')) {
-      const testa = celle(r);
-      i += 2;
-      let corpo = '';
-      while (i < righe.length && righe[i].trim() && righe[i].includes('|')) {
-        corpo += `<tr>${celle(righe[i]).map((c) => `<td>${mdInline(c)}</td>`).join('')}</tr>`; i++;
-      }
-      h += `<table class="md-tab"><thead><tr>${testa.map((c) => `<th>${mdInline(c)}</th>`).join('')}</tr></thead><tbody>${corpo}</tbody></table>`;
-    } else if ((m = r.match(/^\s*(#{1,6})\s+(.*)$/))) {
-      h += `<div class="md-h md-h${Math.min(m[1].length, 3)}">${mdInline(m[2])}</div>`; i++;
-    } else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(r)) {
-      h += '<hr>'; i++;
-    } else if (/^\s*[-*•+]\s+/.test(r)) {
-      let li = '';
-      while (i < righe.length && /^\s*[-*•+]\s+/.test(righe[i])) { li += `<li>${mdInline(righe[i].replace(/^\s*[-*•+]\s+/, ''))}</li>`; i++; }
-      h += `<ul>${li}</ul>`;
-    } else if (/^\s*\d+[.)]\s+/.test(r)) {
-      let li = '';
-      while (i < righe.length && /^\s*\d+[.)]\s+/.test(righe[i])) { li += `<li>${mdInline(righe[i].replace(/^\s*\d+[.)]\s+/, ''))}</li>`; i++; }
-      h += `<ol>${li}</ol>`;
-    } else if (/^\s*&gt;\s?/.test(r)) {
-      let q = [];
-      while (i < righe.length && /^\s*&gt;\s?/.test(righe[i])) { q.push(mdInline(righe[i].replace(/^\s*&gt;\s?/, ''))); i++; }
-      h += `<blockquote>${q.join('<br>')}</blockquote>`;
-    } else {
-      const p = [];
-      while (i < righe.length && righe[i].trim() && !/^\s*(#{1,6}\s|[-*•+]\s|\d+[.)]\s|&gt;)/.test(righe[i])) { p.push(mdInline(righe[i])); i++; }
-      h += `<p>${p.join('<br>')}</p>`;
-    }
-  }
-  return h;
-}
-
-// testo senza simboli markdown, per le anteprime di una riga
-const senzaMarkdown = (t) => String(t ?? '').replace(/^\s*#{1,6}\s+/gm, '').replace(/^\s*[-*•+]\s+/gm, '• ')
-  .replace(/\*\*(.+?)\*\*|__(.+?)__/g, '$1$2').replace(/(^|[^*\w])\*(?![\s*])([^*]+?)\*(?![*\w])/g, '$1$2')
-  .replace(/==(.+?)==|~~(.+?)~~|`([^`]+)`/g, '$1$2$3').replace(/^\s*\|?[\s:|-]{3,}\|?\s*$/gm, '').replace(/\|/g, ' ');
-
+// testo del modello -> HTML: Markdown (comune.js), citazioni [G1-02] cliccabili e persone evidenziate
 function formatta(testo, persone = []) {
   let h = markdown(testo);
   h = h.replace(/\[([^\[\]\n]{1,60})\]/g, (m, interno) => interno.split(/[,;]\s*/).map((d) => {
@@ -414,7 +357,7 @@ async function chiedi(domanda, rieseguitaDa = null) {
       for (const riga of righe) {
         if (!riga.trim()) continue;
         const ev = JSON.parse(riga);
-        if (ev.tipo === 'fonti') $('.stato-ricerca', el).textContent = `${ev.fonti.length} brani trovati · scrivo la risposta…`;
+        if (ev.tipo === 'fonti') $('.stato-ricerca', el).textContent = ev.fonti.length ? `${ev.fonti.length} brani trovati · scrivo la risposta…` : 'scrivo la risposta…';
         else if (ev.tipo === 'token') { testo += ev.testo; corpo.innerHTML = formatta(testo); scorri(); }
         else if (ev.tipo === 'fine') {
           completaRisposta(el, ev.voce);

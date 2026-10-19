@@ -48,10 +48,11 @@ def apri_chat(corpo):
         raise
 
 
-def genera_ollama(modello, messaggi):
+def genera_ollama(modello, messaggi, num_predict=None):
     """Generatore di eventi: ('token', testo) ... ('fine', statistiche)."""
     corpo = {'model': modello, 'messages': messaggi, 'stream': True, 'keep_alive': -1, 'think': False,
-             'options': {'temperature': 0, 'num_ctx': cfg.NUM_CTX, 'num_predict': cfg.NUM_PREDICT}}
+             'options': {'temperature': cfg.TEMPERATURA, 'num_ctx': cfg.NUM_CTX,
+                         'num_predict': num_predict or cfg.NUM_PREDICT}}
     risposta = apri_chat(corpo)
     with risposta:
         for riga in risposta:

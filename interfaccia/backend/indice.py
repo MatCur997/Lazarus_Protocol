@@ -232,20 +232,15 @@ class Indice:
                  'punteggio': round(rrf.get(i, 0), 4)} for i in scelti]
 
     def persone_in(self, testo):
-        """Persone citate in un testo: quelle note dai documenti più i nomi che nei documenti non compaiono."""
+        """Persone citate in un testo, solo se compaiono anche nei documenti (nomi inventati o etichette no)."""
         trovate = []
         with self.lock:
             noti = list(self.persone) + list(self.alias)
             for nome in sorted(noti, key=len, reverse=True):
                 if re.search(rf'(?<![\w]){re.escape(nome)}(?![\w])', testo):
                     vero = self.alias.get(nome, nome)
-                    if vero not in trovate:
+                    if vero not in trovate and vero not in self.esclusi:
                         trovate.append(vero)
-            for nome in estrai_nomi(testo):
-                if nome in self.esclusi or nome in self.alias or any(nome in t.split() or nome == t for t in trovate):
-                    continue
-                if nome not in trovate:
-                    trovate.append(nome)
         return trovate
 
     def escludi(self, nome):
