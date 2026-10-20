@@ -1,0 +1,37 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Dati generati dall'interfaccia (ricreati all'avvio se mancano) ----
+interfaccia/caricati/
+interfaccia/registro/storico*.jsonl
+interfaccia/registro/elementi*.jsonl
+interfaccia/registro/elementi_esclusi.txt
+interfaccia/registro/cache_embedding.json
+# Restano tracciati: registro/volti.json (foto assegnate), registro/non_persone.txt (esclusioni),
+# lazzaro/dati/ (documenti della squadra) e lazzaro/diario_chat.jsonl (registro della squadra).
+
+# ---- Archivi ZIP ricevuti dalla squadra ----
+*.zip
+
+# ---- Ambiente e segreti ----
+.env
+.env.*
+
+# ---- Editor e sistema operativo ----
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- Log ----
+*.log
