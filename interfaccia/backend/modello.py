@@ -72,6 +72,16 @@ def genera_ollama(modello, messaggi, num_predict=None):
                                'prompt_token': pezzo.get('prompt_eval_count', 0)}
 
 
+def risposta_ipotetica(modello, domanda):
+    """HyDE: un brano inventato che "somiglia" ai documenti che rispondono alla domanda. Serve solo a cercarli
+    per significato; non viene mai mostrato né passato al modello come fonte."""
+    corpo = {'model': modello, 'stream': False, 'keep_alive': -1, 'think': False,
+             'options': {'temperature': 0.3, 'num_ctx': cfg.NUM_CTX, 'num_predict': cfg.HYDE_TOKEN},
+             'messages': [{'role': 'system', 'content': cfg.ISTRUZIONI_HYDE}, {'role': 'user', 'content': domanda}]}
+    with apri_chat(corpo) as r:
+        return json.loads(r.read())['message']['content'].strip()
+
+
 def estrai_con_modello(modello, fonti, domanda, risposta, annullato):
     """Chiede al modello luoghi/indizi/eventi in JSON. Ritorna None se annullata da una nuova domanda."""
     testo_fonti = '\n\n'.join(f'[{f["doc"]}] {f["testo"]}' for f in fonti)

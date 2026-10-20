@@ -65,7 +65,7 @@ solo la libreria standard (più `requests`) nel backend.
 | Indizi, ipotesi, eventi, luoghi della risposta | `app.js` → `mostraElementi`, colonna destra `disegnaElementi` | `GET /api/elementi`, `GET /api/elemento` | `testo.estrai_voci_nominate`, `testo.estrai_luoghi`, `storico.raccogli` |
 | Persone | `app.js` → `vocePersona`; `persona.html` → `paginaPersona` | `GET /api/persone`, `GET /api/persona`, `POST /api/persona/escludi` | `indice.persone_in`, `Indice._indicizza_persone` |
 | Schede di dettaglio | `persona.html` | `GET /api/persona`, `/api/elemento`, `/api/documento`, `/api/cerca` | `server.api_*`, `Gestore.passaggi` |
-| Bacheca (Accesso Segreto) | `bacheca.html` (disposizione, puntine colorate per tipo, fili, riquadro al passaggio del mouse) | `GET /api/bacheca` | `server.api_bacheca` (nodi = indizi, ipotesi, eventi verificati e persone trovate; fili = i 2 collegamenti più forti per voce + ogni persona verso le voci che la riguardano) |
+| Bacheca (Accesso Segreto) | `bacheca.html` (disposizione, puntine colorate per tipo, fili, riquadro al passaggio del mouse) | `GET /api/bacheca` | `server.api_bacheca` (nodi = indizi, ipotesi, eventi verificati, persone trovate e luoghi presenti nei documenti; fili = i 2 collegamenti più forti per voce + ogni persona e ogni luogo verso le voci che li riguardano) |
 | Volti delle persone | `comune.js` → `voltoHtml`; colonna destra, scheda persona, riquadro della bacheca | campo `volto` in `/api/persone`, `/api/persona`, `/api/bacheca` | `volti.Volti` |
 | Storico | `app.js` → `disegnaStorico` | `GET /api/storico`, `POST /api/storico/elimina`, `POST /api/storico/svuota` | `storico.Storico` |
 | Caricare file | `app.js` → `carica` | `POST /api/carica`, `POST /api/rimuovi` | `server.api_carica`, `indice.testo_da_bytes` |
@@ -80,13 +80,27 @@ solo la libreria standard (più `requests`) nel backend.
 - **Cosa conta come "non pertinente"**: `PAROLE_CONVERSAZIONE` e `ISTRUZIONI_PERTINENZA` in `lazarus.py`.
 - **Quanto è severo il riscontro degli indizi**: `SOGLIA_RISCONTRO` in `backend/testo.py`.
 - **Quanti fili sulla bacheca**: `FILI_PER_VOCE`, `FILO_MINIMO` in `backend/server.py`.
-- **Colori e temi**: solo le variabili in cima a `frontend/app.css`. Colori delle puntine: `--p-indizio`, `--p-ipotesi`, `--p-evento`, `--p-persona` in `frontend/bacheca.html`.
+- **Navigazione**: le schede si aprono nella stessa finestra (`vaiA` in `comune.js`, `apri` in `app.js`); le frecce in alto
+  a sinistra (`frecceNavigazione`) usano la cronologia. Le risposte visibili in chat si ricordano in `sessionStorage`
+  e si ridisegnano tornando indietro (`ripristinaVista`). Mentre il modello scrive, le schede si aprono in una nuova scheda.
+- **Scelta dei brani (RAG)**: `Indice.cerca` fonde con RRF tre classifiche: parole chiave (BM25), significato (embedding) e,
+  solo se la migliore similarità è sotto `HYDE_SOGLIA`, HyDE (il modello scrive una risposta ipotetica, `risposta_ipotetica`
+  in `modello.py`, e si cercano i brani simili a quella). I brani di consultazione valgono `PESO_CONSULTAZIONE`.
+  Interruttori in `config.py`: `HYDE = False` e `PESO_CONSULTAZIONE = 1` tornano alla ricerca di prima.
+- **Citazioni**: `[G1-02]`, `[ARCH-6408]` o `[LX4-7783]` diventano link se corrispondono al nome del file o all'ID scritto
+  nel documento (`id_interno` in `backend/indice.py`, `documentoCitato` in `app.js`), senza badare a trattini e maiuscole.
+- **Colori e temi**: solo le variabili in cima a `frontend/app.css`. Colori delle puntine: `--p-indizio`, `--p-ipotesi`, `--p-evento`, `--p-persona`, `--p-luogo` in `frontend/bacheca.html`.
 - **Aggiungere un volto**: metti l'immagine in `frontend/volti/` e aggiungi una riga in `frontend/volti/volti.json` con `sesso` (`f`/`m`),
   misure dell'immagine e riquadro quadrato del viso (`x`, `y` del centro e `lato`, in pixel). Le persone già assegnate tengono la loro foto;
   le nuove ricevono la foto meno usata del loro sesso. Per riassegnare tutto da capo cancella `registro/volti.json`.
 - **Nomi maschili in -a / femminili non in -a**: elenchi `MASCHILI_IN_A` e `FEMMINILI` in `backend/volti.py`.
 - **Persona o luogo?**: `PREFISSI_LUOGO` e `PREFISSI_SANTI` in `backend/testo.py`. Un nome che inizia con una di queste
-  parole (laboratorio, deposito, Santa, San…) è un luogo e non può essere una persona.
+  parole (laboratorio, deposito, ripetitore, antenna, Santa, San…) è un luogo e non può essere una persona.
+  `PREFISSI_COSA` fa lo stesso per apparecchi, mezzi, gruppi e documenti (generatore, veicolo, squadra…): non sono
+  persone né luoghi. Entrambi contano solo come prima parola del nome, così un cognome come "Canale" resta valido.
+  Scritte in minuscolo subito prima di un nome lo rendono il nome di quella cosa ("il deposito Darsena Vuota",
+  "i ripetitori Rame e Fosso"). I documenti con `source: https://…` (le voci di Wikipedia dell'archivio) sono di
+  consultazione: si cercano, ma non entrano nell'elenco delle persone (`di_consultazione` in `backend/indice.py`).
 - **Ogni chiamata a Ollama** passa da `prepara_richiesta` (`lazarus.py`, usata anche da `backend/modello.py`): mette un codice
   diverso in testa al prompt, così Ollama non riusa lo stato di una domanda precedente (con gemma a volte lo riprendeva
   sbagliato e il modello perdeva il ruolo), e allarga il contesto se istruzioni + documenti + risposta non ci stanno.

@@ -10,7 +10,7 @@ import time
 
 import config as cfg
 from indice import contesto_da_fonti
-from modello import genera_demo, genera_ollama
+from modello import genera_demo, genera_ollama, risposta_ipotetica
 from testo import ms, parole
 
 
@@ -26,13 +26,14 @@ def controlla_pertinenza(indice, modello, domanda, strumenti, demo=False):
     return conversazione
 
 
-def cerca_fonti(indice, domanda, precedenti, strumenti):
+def cerca_fonti(indice, domanda, precedenti, strumenti, modello=None, demo=False):
     """Sceglie i brani da dare al modello. `strumenti` si riempie con {nome, ms, dettaglio} di ogni passo."""
     # solo le domande di seguito molto corte ("e cosa dice?") cercano anche con la domanda precedente:
     # per le altre la domanda precedente porterebbe fuori strada la ricerca
     breve = len(parole(domanda)) <= 3
     query = f'{domanda} {precedenti[-1]["domanda"]}' if precedenti and breve else domanda
-    return indice.cerca(query, strumenti)
+    ipotesi = (lambda: risposta_ipotetica(modello, query)) if cfg.HYDE and modello and not demo else None
+    return indice.cerca(query, strumenti, ipotesi)
 
 
 def costruisci_messaggi(domanda, fonti, precedenti, conversazione=False):

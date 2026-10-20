@@ -1,5 +1,6 @@
 """Documenti, brani, ricerca (BM25 + embedding) e indice delle persone. Tutto in memoria."""
 import hashlib
+import html
 import io
 import json
 import math
@@ -11,7 +12,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import config as cfg
-from config import (CARTELLA_CARICATI, CARTELLA_REGISTRO, ESTENSIONI_OK, ESTENSIONI_TESTO, PROGETTO,
+from config import (CARTELLA_CARICATI, CARTELLA_REGISTRO, ESTENSIONI_MARKUP, ESTENSIONI_OK, ESTENSIONI_TESTO, PROGETTO,
                     SOGLIA_BRANI, SOGLIA_CARATTERI, TOP_K)
 from modello import embed
 from testo import estrai_nomi, frasi, ms, parole
@@ -24,14 +25,77 @@ def leggi_file(percorso: Path):
     return testo_da_bytes(percorso.name, dati) if est != '.zip' else None
 
 
+def decodifica(dati):
+    for codifica in ('utf-8-sig', 'cp1252', 'latin-1'):
+        try:
+            return dati.decode(codifica)
+        except UnicodeDecodeError:
+            pass
+    return dati.decode('utf-8', errors='replace')
+
+
+def da_markup(testo):
+    """XML/HTML -> testo. Gli elementi semplici diventano righe "nome: valore" (<title>Equatore</title> ->
+    "title: Equatore"), come nei .txt: così titolo, ID e "source:" si riconoscono allo stesso modo."""
+    testo = re.sub(r'(?is)<(script|style)\b.*?</\1>|<!--.*?-->|<\?.*?\?>|<!doctype[^>]*>', ' ', testo)
+    testo = re.sub(r'<([A-Za-z][\w.-]*)(?:\s[^>]*)?>([^<]*)</\1>',
+                   lambda m: m[0] if m[1].lower() in TAG_IN_LINEA else f'\n{m[1]}: {m[2]}\n', testo)
+    testo = re.sub(r'(?i)<br\s*/?>|</(p|div|li|tr|h[1-6]|section|article|table|ul|ol)>', '\n', testo)
+    testo = html.unescape(re.sub(r'<[^>]+>', '', testo))
+    righe = (re.sub(r'[ \t\xa0]+', ' ', r).strip() for r in testo.splitlines())
+    return '\n'.join(r for r in righe if r)
+
+
+TAG_IN_LINEA = {'b', 'strong', 'i', 'em', 'span', 'a', 'u', 'p', 'li', 'td', 'th', 'div', 'small', 'code'}
+
+
+def da_xlsx(dati):
+    """Fogli Excel -> testo: una riga per riga del foglio, celle separate da " | ". Solo libreria standard."""
+    def testi(xml):     # testo di <t> anche spezzato in più pezzi (<r><t>..</t></r>)
+        return html.unescape(''.join(re.findall(r'<t(?:\s[^>]*)?>([^<]*)</t>', xml)))
+    with zipfile.ZipFile(io.BytesIO(dati)) as z:
+        nomi = z.namelist()
+        # alcuni programmi scrivono i tag con un prefisso (<x:row>, <x:c>): si tolgono per leggere tutti allo stesso modo
+        leggi = lambda n: re.sub(r'<(/?)[A-Za-z][\w.-]*:', r'<\1', z.read(n).decode('utf-8'))
+        condivisi = []
+        if 'xl/sharedStrings.xml' in nomi:
+            condivisi = [testi(si) for si in re.findall(r'<si>(.*?)</si>', leggi('xl/sharedStrings.xml'), re.S)]
+        titoli = []
+        if 'xl/workbook.xml' in nomi:
+            titoli = re.findall(r'<sheet\s[^>]*name="([^"]*)"', leggi('xl/workbook.xml'))
+        fogli = sorted((n for n in nomi if re.fullmatch(r'xl/worksheets/sheet\d+\.xml', n)),
+                       key=lambda n: int(re.search(r'\d+', n.rsplit('/', 1)[1])[0]))
+        parti = []
+        for i, foglio in enumerate(fogli):
+            righe = []
+            for riga in re.findall(r'<row\b[^>]*>(.*?)</row>', leggi(foglio), re.S):
+                celle = []
+                for attr, corpo in re.findall(r'<c\b([^>]*?)(?:/>|>(.*?)</c>)', riga, re.S):
+                    tipo = re.search(r'\bt="(\w+)"', attr)
+                    valore = re.search(r'<v>([^<]*)</v>', corpo or '')
+                    if tipo and tipo[1] == 's' and valore:
+                        n = int(valore[1])
+                        celle.append(condivisi[n] if n < len(condivisi) else '')
+                    elif tipo and tipo[1] == 'inlineStr':
+                        celle.append(testi(corpo))
+                    else:
+                        celle.append(html.unescape(valore[1]) if valore else '')
+                if any(c.strip() for c in celle):
+                    righe.append(' | '.join(c.strip() for c in celle))
+            if righe:
+                testata = f'Foglio: {html.unescape(titoli[i])}\n' if i < len(titoli) else ''
+                parti.append(testata + '\n'.join(righe))
+    return '\n\n'.join(parti)
+
+
 def testo_da_bytes(nome, dati):
     est = Path(nome).suffix.lower()
     if est in ESTENSIONI_TESTO:
-        for codifica in ('utf-8-sig', 'cp1252', 'latin-1'):
-            try:
-                return dati.decode(codifica)
-            except UnicodeDecodeError:
-                pass
+        return decodifica(dati)
+    if est in ESTENSIONI_MARKUP:
+        return da_markup(decodifica(dati))
+    if est == '.xlsx':
+        return da_xlsx(dati)
     if est == '.docx':
         with zipfile.ZipFile(io.BytesIO(dati)) as z:
             xml = z.read('word/document.xml').decode('utf-8')
@@ -44,6 +108,26 @@ def testo_da_bytes(nome, dati):
             raise ValueError('Per i PDF installa pypdf (pip install pypdf), oppure converti il file in .txt')
         return '\n'.join(p.extract_text() or '' for p in PdfReader(io.BytesIO(dati)).pages)
     raise ValueError(f'Formato non supportato: {est}')
+
+
+# "source: https://it.wikipedia.org/..." (txt) oppure "source": "https://..." (json): materiale di consultazione
+RE_FONTE_ESTERNA = re.compile(r'''^\s*\{?\s*["']?source["']?\s*:\s*["']?https?://|["']source["']\s*:\s*["']https?://''', re.I | re.M)
+
+
+# ID scritto nel documento: "ID G1-01", "Documento: LX4-1418", "id: ARCH-6408", {"id": "ARCH-6408", ...}
+RE_ID_INTERNO = re.compile(r'''^\s*\{?\s*["']?(?:id|documento)["']?\s*:?\s*["']?([A-Z0-9][\w.-]{1,40})''', re.I | re.M)
+
+
+def id_interno(testo):
+    """L'ID con cui il documento si presenta e con cui il modello lo cita ([ARCH-6408] per documento_0421.json)."""
+    m = RE_ID_INTERNO.search(testo[:600])
+    return m[1] if m else None
+
+
+def di_consultazione(testo):
+    """Documenti presi da fonti esterne (es. voci di Wikipedia nell'archivio): si possono cercare,
+    ma i loro nomi (città, aziende, personaggi storici) non sono persone del caso."""
+    return bool(RE_FONTE_ESTERNA.search(testo[:5000]))
 
 
 def spezza(doc_id, testo, max_car=900):
@@ -108,7 +192,7 @@ class Indice:
                     doc_id = p.stem if p.stem not in docs else f'{p.stem}_{origine}'
                     docs[doc_id] = {'id': doc_id, 'nome': p.name, 'origine': origine,
                                     'percorso': str(p.relative_to(PROGETTO)) if p.is_relative_to(PROGETTO) else str(p),
-                                    'testo': testo}
+                                    'testo': testo, 'consultazione': di_consultazione(testo), 'id_interno': id_interno(testo)}
         with self.lock:
             self.documenti = docs
             self._costruisci()
@@ -120,7 +204,8 @@ class Indice:
             d['titolo'] = titolo
             for n, t in enumerate(pezzi):
                 p = parole(f'{titolo} {t}')
-                brani.append({'doc': d['id'], 'n': n, 'testo': t, 'parole': p, 'freq': Counter(p), 'emb': None})
+                brani.append({'doc': d['id'], 'id_interno': d.get('id_interno'), 'consultazione': d.get('consultazione', False),
+                              'n': n, 'testo': t, 'parole': p, 'freq': Counter(p), 'emb': None})
         # BM25
         self.df = Counter()
         for b in brani:
@@ -132,6 +217,8 @@ class Indice:
     def _indicizza_persone(self):
         persone = defaultdict(list)
         for d in self.documenti.values():
+            if d.get('consultazione'):      # fonti esterne: cercabili, ma non sono il caso
+                continue
             elenco = frasi(d['testo'])
             for i, f in enumerate(elenco):
                 for nome in set(estrai_nomi(f)):
@@ -183,7 +270,9 @@ class Indice:
         return hashlib.sha1(f'{cfg.MODELLO_EMBEDDING}|{testo}'.encode()).hexdigest()
 
     # -- ricerca
-    def cerca(self, domanda, strumenti):
+    def cerca(self, domanda, strumenti, ipotesi=None):
+        """Brani per la domanda: parole chiave (BM25) + significato (embedding) + HyDE se serve, fusi con RRF.
+        `ipotesi`: funzione senza argomenti che ritorna la risposta ipotetica del modello (HyDE), o None."""
         with self.lock:
             brani = list(self.brani)
             n = len(brani)
@@ -192,7 +281,7 @@ class Indice:
         if tutto_nel_contesto(brani):
             # come lazarus.py: pochi testi -> si danno tutti al modello, niente ricerca né embedding
             strumenti.append({'nome': 'fondi_risultati', 'ms': 0, 'dettaglio': f'{n} brani: documenti passati interi'})
-            return [{'doc': b['doc'], 'n': b['n'], 'testo': b['testo'], 'punteggio': 0} for b in brani]
+            return [{'doc': b['doc'], 'id_interno': b['id_interno'], 'n': b['n'], 'testo': b['testo'], 'punteggio': 0} for b in brani]
         t = time.perf_counter()
         q = parole(domanda)
         punteggi = []
@@ -208,27 +297,50 @@ class Indice:
         bm25 = [i for s, i in sorted(punteggi, reverse=True) if s > 0][:30]
         strumenti.append({'nome': 'cerca_parole_chiave', 'ms': ms(t), 'dettaglio': f'{len(bm25)} brani con parole in comune'})
 
-        semantica = []
+        semantica, migliore = [], None
         if self.embedding_ok:
             t = time.perf_counter()
             try:
                 qv = embed([domanda])[0]
                 sim = sorted(((coseno(qv, b['emb']), i) for i, b in enumerate(brani)), reverse=True)
-                semantica = [i for s, i in sim[:30]]
-                strumenti.append({'nome': 'cerca_semantica', 'ms': ms(t), 'dettaglio': f'migliore similarità {sim[0][0]:.2f}'})
+                semantica, migliore = [i for s, i in sim[:30]], sim[0][0]
+                strumenti.append({'nome': 'cerca_semantica', 'ms': ms(t), 'dettaglio': f'migliore similarità {migliore:.2f}'})
             except Exception as e:
                 strumenti.append({'nome': 'cerca_semantica', 'ms': ms(t), 'dettaglio': f'errore: {e}'})
 
+        # HyDE: solo se la domanda da sola trova poco. È una classifica IN PIÙ: un'ipotesi sbagliata
+        # non può togliere i brani trovati con la domanda vera.
+        hyde = []
+        if ipotesi and migliore is not None:
+            t = time.perf_counter()
+            if migliore >= cfg.HYDE_SOGLIA:
+                strumenti.append({'nome': 'cerca_hyde', 'ms': 0, 'dettaglio': f'non serve: similarità {migliore:.2f} ≥ {cfg.HYDE_SOGLIA:.2f}'})
+            else:
+                try:
+                    testo_ipotesi = ipotesi()
+                    hv = embed([testo_ipotesi])[0]
+                    sim_h = sorted(((coseno(hv, b['emb']), i) for i, b in enumerate(brani)), reverse=True)
+                    hyde = [i for s, i in sim_h[:30]]
+                    strumenti.append({'nome': 'cerca_hyde', 'ms': ms(t), 'testo': testo_ipotesi,
+                                      'dettaglio': f'risposta ipotetica di {len(testo_ipotesi.split())} parole · migliore similarità {sim_h[0][0]:.2f}'})
+                except Exception as e:
+                    strumenti.append({'nome': 'cerca_hyde', 'ms': ms(t), 'dettaglio': f'errore: {e}'})
+
         t = time.perf_counter()
         rrf = defaultdict(float)
-        for classifica in (bm25, semantica):
+        for classifica in (bm25, semantica, hyde):
             for pos, i in enumerate(classifica):
                 rrf[i] += 1 / (60 + pos)
+        for i in rrf:   # materiale di consultazione (voci di Wikipedia): cercabile, ma il caso viene prima
+            if brani[i]['consultazione']:
+                rrf[i] *= cfg.PESO_CONSULTAZIONE
         scelti = sorted(rrf, key=rrf.get, reverse=True)[:TOP_K]
         if not scelti:  # nessuna parola in comune e niente embedding: prendiamo i primi brani
             scelti = list(range(min(TOP_K, n)))
-        strumenti.append({'nome': 'fondi_risultati', 'ms': ms(t), 'dettaglio': f'{len(scelti)} brani scelti'})
-        return [{'doc': brani[i]['doc'], 'n': brani[i]['n'], 'testo': brani[i]['testo'],
+        di_consultazione = sum(brani[i]['consultazione'] for i in scelti)
+        strumenti.append({'nome': 'fondi_risultati', 'ms': ms(t), 'dettaglio': f'{len(scelti)} brani scelti'
+                          + (f' ({di_consultazione} di consultazione)' if di_consultazione else '')})
+        return [{'doc': brani[i]['doc'], 'id_interno': brani[i]['id_interno'], 'n': brani[i]['n'], 'testo': brani[i]['testo'],
                  'punteggio': round(rrf.get(i, 0), 4)} for i in scelti]
 
     def persone_in(self, testo):
