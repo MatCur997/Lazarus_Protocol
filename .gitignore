@@ -35,3 +35,7 @@ desktop.ini
 
 # ---- Log ----
 *.log
+
+# ---- Dati runtime ----
+interfaccia/registro/volti.json
+lazzaro/diario_chat.jsonl
