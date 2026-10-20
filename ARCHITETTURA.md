@@ -33,7 +33,7 @@ solo la libreria standard (più `requests`) nel backend.
 
 | File | Responsabilità | Funzioni principali |
 |---|---|---|
-| `app_lazarus/lazarus.py` | Istruzioni del modello e regole di base, condivise con la chat nel terminale | `ISTRUZIONI`, `ISTRUZIONI_CONVERSAZIONE`, `classifica_domanda` (pertinenza), `e_conversazione`, costanti `MODELLO`, `MAX_TOKEN`, `NUM_CTX`, `TEMPERATURA` |
+| `app_lazarus/lazarus.py` | Istruzioni del modello e regole di base, condivise con la chat nel terminale | `ISTRUZIONI`, `ISTRUZIONI_CONVERSAZIONE`, `classifica_domanda` (pertinenza), `e_conversazione`, `prepara_richiesta` (ogni domanda indipendente, contesto mai pieno), costanti `MODELLO`, `MAX_TOKEN`, `NUM_CTX`, `TEMPERATURA` |
 | `backend/config.py` | Impostazioni, percorsi, collegamento con `app_lazarus` | `istruzioni_correnti`, `classifica_domanda`, `STRUMENTI` |
 | `backend/server.py` | Rotte HTTP: riceve le richieste del browser e risponde in JSON | `Gestore.api_*`, `main` |
 | `backend/motore.py` | I passi di una risposta | `controlla_pertinenza` → `cerca_fonti` → `costruisci_messaggi` → `genera` |
@@ -85,6 +85,12 @@ solo la libreria standard (più `requests`) nel backend.
   misure dell'immagine e riquadro quadrato del viso (`x`, `y` del centro e `lato`, in pixel). Le persone già assegnate tengono la loro foto;
   le nuove ricevono la foto meno usata del loro sesso. Per riassegnare tutto da capo cancella `registro/volti.json`.
 - **Nomi maschili in -a / femminili non in -a**: elenchi `MASCHILI_IN_A` e `FEMMINILI` in `backend/volti.py`.
+- **Persona o luogo?**: `PREFISSI_LUOGO` e `PREFISSI_SANTI` in `backend/testo.py`. Un nome che inizia con una di queste
+  parole (laboratorio, deposito, Santa, San…) è un luogo e non può essere una persona.
+- **Ogni chiamata a Ollama** passa da `prepara_richiesta` (`lazarus.py`, usata anche da `backend/modello.py`): mette un codice
+  diverso in testa al prompt, così Ollama non riusa lo stato di una domanda precedente (con gemma a volte lo riprendeva
+  sbagliato e il modello perdeva il ruolo), e allarga il contesto se istruzioni + documenti + risposta non ci stanno.
+  Le nuove chiamate al modello devono passare da qui.
 - **Modello usato**: `MODELLO` in `avvia_interfaccia.bat`.
 
 ## Regole del progetto

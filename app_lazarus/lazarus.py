@@ -13,8 +13,10 @@ La cartella dei documenti (.txt) si cerca in: --dati, variabile LAZARUS_DATI, ./
 """
 import argparse
 import json
+import math
 import os
 import re
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -92,6 +94,25 @@ def e_conversazione(domanda):
     return not parole or all(p in PAROLE_CONVERSAZIONE for p in parole)
 
 
+def prepara_richiesta(corpo):
+    """Da usare per OGNI richiesta /api/chat a Ollama. Rende ogni domanda indipendente dalle precedenti.
+    1. Un codice diverso in testa al prompt: Ollama non può riusare lo stato (cache) di una domanda precedente.
+       Con gemma (attenzione a finestra, "SWA") quel riuso a volte riprendeva uno stato sbagliato: il modello
+       perdeva il ruolo, continuava il testo dell'utente o citava documenti della domanda prima.
+    2. Il contesto non deve mai riempirsi: altrimenti Ollama (--context-shift --keep 4) butta via l'inizio
+       del prompt, cioè proprio le istruzioni del ruolo. Se serve, per questa domanda si usa un contesto più grande."""
+    messaggi = corpo["messages"]
+    if messaggi and messaggi[0]["role"] == "system":
+        messaggi[0] = {**messaggi[0], "content": f"[richiesta {secrets.token_hex(3)}]\n{messaggi[0]['content']}"}
+    opzioni = corpo.setdefault("options", {})
+    contesto = opzioni.get("num_ctx", NUM_CTX)
+    stima = sum(len(m["content"]) for m in messaggi) // 3 + 40 * len(messaggi)   # ~3 caratteri per token, + marcatori
+    serve = stima + opzioni.get("num_predict", MAX_TOKEN) + 64
+    if serve > contesto:
+        opzioni["num_ctx"] = 2048 * math.ceil(serve / 2048)   # più grande solo quando serve (ricarica il modello)
+    return corpo
+
+
 def classifica_domanda(domanda, modello=None, titoli=(), nomi=()):
     """Decide PRIMA di leggere i documenti se il messaggio riguarda il caso.
     Ritorna (conversazione, motivo). Dal più economico al più costoso:
@@ -107,11 +128,11 @@ def classifica_domanda(domanda, modello=None, titoli=(), nomi=()):
     elenco = "\n".join(f"- {t}" for t in list(titoli)[:MAX_TITOLI_PERTINENZA])
     sistema = ISTRUZIONI_PERTINENZA + (f"\nDocumenti:\n{elenco}" if elenco else "")
     try:
-        r = requests.post(f"{Config.ollama}/api/chat", json={
+        r = requests.post(f"{Config.ollama}/api/chat", json=prepara_richiesta({
             "model": modello or Config.modello, "stream": False, "think": False, "keep_alive": "30m",
             "messages": [{"role": "system", "content": sistema}, {"role": "user", "content": domanda}],
             # stesso num_ctx delle risposte: un valore diverso farebbe ricaricare il modello
-            "options": {"temperature": 0, "num_predict": 3, "num_ctx": NUM_CTX}}, timeout=300)
+            "options": {"temperature": 0, "num_predict": 3, "num_ctx": NUM_CTX}}), timeout=300)
         r.raise_for_status()
         verdetto = r.json()["message"]["content"].strip().upper()
     except Exception as e:
@@ -226,9 +247,9 @@ def rispondi(domanda, istruzioni, modello, max_token):
         messaggi = [{"role": "system", "content": istruzioni},
                     {"role": "user", "content": f"Fonti:\n{contesto}\nDomanda: {domanda}"}]
     t0 = time.perf_counter()
-    r = requests.post(f"{Config.ollama}/api/chat", json={
+    r = requests.post(f"{Config.ollama}/api/chat", json=prepara_richiesta({
         "model": modello, "messages": messaggi, "stream": False, "think": False, "keep_alive": "30m",
-        "options": {"temperature": TEMPERATURA, "num_predict": int(max_token), "num_ctx": NUM_CTX}}, timeout=600)
+        "options": {"temperature": TEMPERATURA, "num_predict": int(max_token), "num_ctx": NUM_CTX}}), timeout=600)
     r.raise_for_status()
     risposta = r.json()["message"]["content"].strip()
     esito = {"risposta": risposta, "secondi": round(time.perf_counter() - t0, 2),

@@ -77,6 +77,11 @@ def istruzioni_correnti():
     return LAZARUS.leggi_istruzioni() if LAZARUS else ISTRUZIONI
 
 
+def prepara_richiesta(corpo):
+    """Ogni richiesta al modello è indipendente dalle precedenti e non riempie il contesto (vedi lazarus.py)."""
+    return LAZARUS.prepara_richiesta(corpo) if LAZARUS else corpo
+
+
 def classifica_domanda(domanda, modello, titoli, nomi, demo=False):
     """(conversazione, motivo): il messaggio riguarda il caso? Si decide prima di cercare nei documenti.
     Regole e controllo col modello sono in lazarus.py; in demo solo le regole (non c'è un modello)."""

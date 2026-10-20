@@ -32,13 +32,15 @@ def modelli_disponibili():
 def precarica(modello):
     """Carica il modello in memoria e ce lo lascia (keep_alive=-1): la prima domanda non paga il caricamento."""
     try:
-        with ollama('/api/generate', {'model': modello, 'keep_alive': -1}, timeout=300) as r:
+        # stesso num_ctx delle domande: senza, Ollama carica il modello con un altro contesto e lo ricarica alla prima domanda
+        with ollama('/api/generate', {'model': modello, 'keep_alive': -1, 'options': {'num_ctx': cfg.NUM_CTX}}, timeout=300) as r:
             r.read()
     except Exception as e:
         print(f'  Precaricamento di {modello} non riuscito: {e}')
 
 
 def apri_chat(corpo):
+    corpo = cfg.prepara_richiesta(corpo)      # niente riuso dello stato di domande precedenti, contesto mai pieno
     try:
         return ollama('/api/chat', corpo)
     except urllib.error.HTTPError as e:

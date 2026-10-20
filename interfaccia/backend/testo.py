@@ -21,7 +21,11 @@ ipotesi indizio indizi dubbi dubbio evidenze evidenza fatto fatti nota note'''.s
 
 PREFISSI_LUOGO = set('''via viale piazza piazzale corso largo vicolo ospedale stazione ponte porta chiesa scuola parco
 quartiere zona rifugio settore torre monte fiume lago hotel albergo bar banca caserma palazzo villa cascina borgo
-strada località centro istituto università clinica farmacia'''.split())
+strada località centro istituto università clinica farmacia laboratorio deposito magazzino ufficio archivio base
+porto aeroporto campo carcere cimitero mercato fabbrica capannone bunker struttura complesso padiglione reparto'''.split())
+# "Santa Chiara", "San Carlo", "Sant'Anna": nei documenti sono luoghi (laboratori, ospedali, quartieri), non persone
+PREFISSI_SANTI = {'san', 'santa', 'santo', 'santi', 'sant'}
+PREFISSI_LUOGO |= PREFISSI_SANTI
 
 TITOLI = set('''signor signore signora signorina dottor dottore dottoressa dott dr professor professore professoressa
 prof capitano tenente sergente caporale agente ispettore ispettrice commissario sindaco don suor padre ingegner
@@ -97,6 +101,8 @@ def estrai_nomi(testo):
 _PAROLE_LUOGO = '|'.join(sorted(PREFISSI_LUOGO, key=len, reverse=True))
 # "Piazza Duomo", "rifugio nord", "settore 4", "Ospedale San Carlo"
 RE_LUOGO = re.compile(rf"(?<![\w’'])((?i:{_PAROLE_LUOGO})(?:[ \t]+(?:{PAROLA_MAIUSC}|nord|sud|est|ovest|centrale|\d+[a-z]?)){{1,3}})(?![\w’'])")
+# "Sant'Anna", "Sant’Ambrogio"
+RE_LUOGO_SANT = re.compile(r"(?<![\w’'])(Sant['’][A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ]+)(?![\w’'])")
 # "a Torino", "verso Monza", "presso Villa Reale"
 RE_LUOGO_PREP = re.compile(rf"(?<![\w’'])(?:a|in|presso|verso)[ \t]+({PAROLA_MAIUSC}(?:[ \t]+{PAROLA_MAIUSC})?)(?![\w’'])")
 
@@ -109,9 +115,15 @@ def estrai_luoghi(testo, persone_note=()):
     trovati = {}
     for m in RE_LUOGO.finditer(testo):
         nome = m.group(1)
+        parti = nome.split()
+        # "laboratorio Santa Irene" -> "Santa Irene": il nome proprio è quello che compare anche nelle risposte
+        if len(parti) > 2 and parti[0].lower() not in PREFISSI_SANTI and parti[1].lower() in PREFISSI_SANTI:
+            nome = ' '.join(parti[1:])
         if any(p.endswith(nome.split(None, 1)[-1]) for p in persone_note):
             continue
         trovati.setdefault(chiave(nome), nome[0].upper() + nome[1:])
+    for m in RE_LUOGO_SANT.finditer(testo):
+        trovati.setdefault(chiave(m.group(1)), m.group(1))
     for m in RE_LUOGO_PREP.finditer(testo):
         nome = m.group(1)
         primo = nome.split()[0].lower()
