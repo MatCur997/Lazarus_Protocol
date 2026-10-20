@@ -28,7 +28,12 @@ MAX_UPLOAD = 50 * 1024 * 1024
 ESTRAZIONE_CON_MODELLO = False   # True = seconda chiamata al modello dopo ogni risposta: occupa Ollama e rallenta la domanda dopo
 SOGLIA_BRANI = 40                # fino a questi brani/caratteri si passano tutti i testi al modello (come lazarus.py)
 SOGLIA_CARATTERI = 8000
-MEMORIA_TURNI = 0                # domande precedenti rimandate al modello (0 = come lazarus.py: nessuna memoria)
+MEMORIA_TURNI = 1                # scambi SUL CASO rimandati al modello, solo se avevano usato fonti (0 = nessuna memoria)
+MEMORIA_TURNI_CONVERSAZIONE = 3  # scambi di qualunque tipo rimandati nei messaggi non sul caso (non ci sono documenti)
+MAX_CARATTERI_RISPOSTA_MEMORIA = 600   # le risposte ricordate si tagliano qui: con NUM_CTX 4096 un overflow taglia le istruzioni
+
+NOTA_STORIA = ("\nHai davanti i messaggi precedenti di questa conversazione: se l'utente chiede cosa ti ha "
+               "chiesto o cosa hai risposto, rispondi in base a quelli, citando la sua domanda.")
 
 ISTRUZIONI_ELEMENTI = (
     'Estrai dalla risposta e dalle fonti gli elementi utili all\'indagine: '
@@ -77,18 +82,19 @@ def istruzioni_correnti():
     return LAZARUS.leggi_istruzioni() if LAZARUS else ISTRUZIONI
 
 
-def classifica_domanda(domanda, modello, titoli, nomi, demo=False):
+def classifica_domanda(domanda, modello, titoli, nomi, demo=False, precedente=''):
     """(conversazione, motivo): il messaggio riguarda il caso? Si decide prima di cercare nei documenti.
     Regole e controllo col modello sono in lazarus.py; in demo solo le regole (non c'è un modello)."""
     if not LAZARUS:
         return False, 'controllo non disponibile: cerco nei documenti'
     if demo:
         return (True, 'saluto o cortesia (regole)') if LAZARUS.e_conversazione(domanda) else (False, 'demo: solo regole')
-    return LAZARUS.classifica_domanda(domanda, modello, titoli, nomi)
+    return LAZARUS.classifica_domanda(domanda, modello, titoli, nomi, precedente)
 
 
-def istruzioni_conversazione():
-    return LAZARUS.ISTRUZIONI_CONVERSAZIONE if LAZARUS else ISTRUZIONI
+def istruzioni_conversazione(con_storia=False):
+    base = LAZARUS.ISTRUZIONI_CONVERSAZIONE if LAZARUS else ISTRUZIONI
+    return base + NOTA_STORIA if con_storia else base
 
 
 ESTENSIONI_TESTO = {'.txt', '.md', '.csv', '.json', '.jsonl', '.log'}

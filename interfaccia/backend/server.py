@@ -391,7 +391,7 @@ class Gestore(BaseHTTPRequestHandler):
         if not domanda:
             raise ValueError('Domanda vuota')
         modello = corpo.get('modello') or STATO['modello']
-        precedenti = [v for v in STORICO.voci if not v.get('errore')][-2:]
+        precedenti = [v for v in STORICO.voci if not v.get('errore')][-max(2, cfg.MEMORIA_TURNI_CONVERSAZIONE):]
         with BLOCCO_TURNO:          # una nuova domanda interrompe l'estrazione degli elementi in corso
             TURNO['n'] += 1
             mio_turno = TURNO['n']
@@ -407,7 +407,7 @@ class Gestore(BaseHTTPRequestHandler):
 
         t0 = time.perf_counter()
         strumenti = []
-        conversazione = motore.controlla_pertinenza(INDICE, modello, domanda, strumenti, STATO['demo'])
+        conversazione = motore.controlla_pertinenza(INDICE, modello, domanda, strumenti, STATO['demo'], precedenti)
         fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, precedenti, strumenti)
         ricerca_ms = ms(t0)
         for s in strumenti:
