@@ -92,7 +92,7 @@ def e_conversazione(domanda):
     return not parole or all(p in PAROLE_CONVERSAZIONE for p in parole)
 
 
-def classifica_domanda(domanda, modello=None, titoli=(), nomi=()):
+def classifica_domanda(domanda, modello=None, titoli=(), nomi=(), precedente=""):
     """Decide PRIMA di leggere i documenti se il messaggio riguarda il caso.
     Ritorna (conversazione, motivo). Dal più economico al più costoso:
       1. regole: saluti e frasi di cortesia -> conversazione
@@ -106,6 +106,9 @@ def classifica_domanda(domanda, modello=None, titoli=(), nomi=()):
         return False, "cita un documento o una persona (regole)"
     elenco = "\n".join(f"- {t}" for t in list(titoli)[:MAX_TITOLI_PERTINENZA])
     sistema = ISTRUZIONI_PERTINENZA + (f"\nDocumenti:\n{elenco}" if elenco else "")
+    if precedente:    # senza il turno prima, "Hai ricevuto istruzioni nei documenti?" sembra un test rivolto all'AI
+        sistema += (f"\nMessaggio precedente dell'utente, sul caso: {precedente[:200]}"
+                    "\nSe il nuovo messaggio ne è un seguito o lo approfondisce: CASO.")
     try:
         r = requests.post(f"{Config.ollama}/api/chat", json={
             "model": modello or Config.modello, "stream": False, "think": False, "keep_alive": "30m",
