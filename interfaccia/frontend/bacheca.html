@@ -10,9 +10,9 @@
   /* Bacheca dell'investigatore: sughero, letterine con la puntina, fili rossi. Colori solo per questa pagina. */
   /* puntine: un colore per ogni tipo di informazione */
   :root { --sughero: #b48a5c; --sughero-scuro: #9c7448; --filo: #b3262b; --filo-acceso: #e0342f; --busta: #f6f1e6; --busta-bordo: #d8cdb8;
-    --p-indizio: #c0302b; --p-ipotesi: #e0a91f; --p-evento: #3c9a5f; --p-persona: #2f6fc0; }
+    --p-indizio: #c0302b; --p-ipotesi: #e0a91f; --p-evento: #3c9a5f; --p-persona: #2f6fc0; --p-luogo: #7b4fa8; }
   :root[data-tema="scuro"] { --sughero: #5b4530; --sughero-scuro: #4a3826; --filo: #c63a35; --filo-acceso: #ff5a4f; --busta: #2c2b29; --busta-bordo: #4a4741;
-    --p-indizio: #d8433c; --p-ipotesi: #f0bb35; --p-evento: #4fb174; --p-persona: #4a8ae0; }
+    --p-indizio: #d8433c; --p-ipotesi: #f0bb35; --p-evento: #4fb174; --p-persona: #4a8ae0; --p-luogo: #a983dd; }
   body.bacheca { min-height: 100vh; display: flex; flex-direction: column; background: var(--testata); }
   .barra-bacheca { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 24px; background: var(--sfondo) var(--carta-grana);
     border-bottom: 1px solid var(--bordo); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--tenue); }
@@ -46,8 +46,10 @@
   .letterina.ipotesi .puntina { --puntina: var(--p-ipotesi); }
   .letterina.evento .puntina { --puntina: var(--p-evento); }
   .letterina.persona .puntina { --puntina: var(--p-persona); }
+  .letterina.luogo .puntina { --puntina: var(--p-luogo); }
   .letterina.ipotesi .genere { color: #9a6a12; }
   .letterina.evento .genere { color: var(--p-evento); }
+  .letterina.luogo .genere { color: var(--p-luogo); }
   /* persona: fototessera con il volto nascosto (si vede passando il mouse) */
   .letterina.persona { width: 112px; height: 136px; padding: 8px 8px 0; background: var(--busta); }
   .letterina.persona::before { display: none; }
@@ -93,8 +95,9 @@
 <div class="barra-bacheca">
   <span id="conteggio">Carico la bacheca…</span>
   <span class="legenda-puntine"><span><i style="background:var(--p-indizio)"></i>indizio</span><span><i style="background:var(--p-ipotesi)"></i>ipotesi</span>
-    <span><i style="background:var(--p-evento)"></i>evento</span><span><i style="background:var(--p-persona)"></i>persona</span></span>
-  <span class="legenda-filo" title="Collega le voci più vicine: contenuto simile, stessa risposta, stessa persona o stesso documento; ogni persona è legata alle voci che la riguardano"><i></i>collegamento</span>
+    <span><i style="background:var(--p-evento)"></i>evento</span><span><i style="background:var(--p-persona)"></i>persona</span>
+    <span><i style="background:var(--p-luogo)"></i>luogo</span></span>
+  <span class="legenda-filo" title="Collega le voci più vicine: contenuto simile, stessa risposta, stessa persona o stesso documento; ogni persona e ogni luogo sono legati alle voci che li riguardano"><i></i>collegamento</span>
   <span class="spazio"></span>
   <span>Mouse sopra: leggi · clic: apri il fascicolo</span>
   <button class="btn-piccolo grigio" id="ricarica" title="Ricarica gli indizi trovati">Aggiorna</button>
@@ -106,7 +109,7 @@
 
 <script src="comune.js"></script>
 <script>
-// Disegna la bacheca da /api/bacheca: nodi (indizi e ipotesi verificati) e fili (motivi del collegamento).
+// Disegna la bacheca da /api/bacheca: nodi (indizi, ipotesi, eventi, persone e luoghi) e fili (motivi del collegamento).
 // La posizione di ogni lettera dipende solo dal suo nome: riaprendo la pagina resta nello stesso punto.
 const LARGO = 132, ALTO = 92, CELLA_X = 230, CELLA_Y = 190, MARGINE = 70;
 let dati = { nodi: [], fili: [] };
@@ -136,7 +139,8 @@ function disegna() {
   const conta = (n, uno, tanti) => `<b>${n}</b> ${n === 1 ? uno : tanti}`;
   const quanti = (g) => dati.nodi.filter((n) => n.genere === g).length;
   $('#conteggio').innerHTML = [conta(quanti('indizio'), 'indizio', 'indizi'), conta(quanti('ipotesi'), 'ipotesi', 'ipotesi'),
-    conta(quanti('evento'), 'evento', 'eventi'), conta(quanti('persona'), 'persona', 'persone'), conta(dati.fili.length, 'filo', 'fili')].join(' · ')
+    conta(quanti('evento'), 'evento', 'eventi'), conta(quanti('persona'), 'persona', 'persone'),
+    conta(quanti('luogo'), 'luogo', 'luoghi'), conta(dati.fili.length, 'filo', 'fili')].join(' · ')
     + ` · aggiornata alle ${esc(dati.aggiornata || '')}`;
   if (!dati.nodi.length) {
     tavola.style.width = '100%'; tavola.style.height = '100%';
@@ -175,15 +179,16 @@ function mostraRiquadro(el) {
   document.querySelectorAll('#fili path').forEach((p) => p.classList.toggle('acceso', collegati.includes(dati.fili[p.dataset.i])));
   const nomeDi = (id) => dati.nodi.find((x) => x.id === id)?.nome || id;
   const r = $('#riquadro');
-  const persona = n.genere === 'persona';
+  const persona = n.genere === 'persona', luogo = n.genere === 'luogo';
+  const docs = n.documenti.length > 6 ? [...n.documenti.slice(0, 6), `+${n.documenti.length - 6}`] : n.documenti;
   r.innerHTML = `${persona && n.volto ? `<div class="ritratto" style="background-image:url('${esc(n.volto.file)}')"></div>` : ''}
-    <div class="righe"><span class="etichetta bordeaux">${esc(n.genere)}</span>${n.documenti.map((d) => `<span class="etichetta">${esc(d)}</span>`).join('')}
+    <div class="righe"><span class="etichetta bordeaux">${esc(n.genere)}</span>${docs.map((d) => `<span class="etichetta">${esc(d)}</span>`).join('')}
       <span class="etichetta">in ${n.citazioni} ${n.citazioni === 1 ? 'risposta' : 'risposte'}</span></div>
     <h3>${esc(n.nome)}</h3>
     ${n.descrizione ? `<div class="desc">${esc(n.descrizione)}</div>` : ''}
-    ${persona
+    ${persona || luogo
       ? `${n.frasi.length ? `<div class="etichetta-sez">Nei documenti</div>${n.frasi.map((f) => `<div class="frase"><span class="etichetta">${esc(f.doc)}</span>${esc(f.frase)}</div>`).join('')}` : ''}
-         ${n.alias.length ? `<div class="etichetta-sez">Chiamata anche</div><div class="frase">${esc(n.alias.join(', '))}</div>` : ''}`
+         ${n.alias?.length ? `<div class="etichetta-sez">Chiamata anche</div><div class="frase">${esc(n.alias.join(', '))}</div>` : ''}`
       : `<div class="etichetta-sez">Riscontro nel documento</div><div class="cit">${esc(n.citazione)}</div>`}
     ${n.persone.length ? `<div class="etichetta-sez">Persone</div><ul><li>${n.persone.map(esc).join('</li><li>')}</li></ul>` : ''}
     ${collegati.length ? `<div class="etichetta-sez">Fili rossi</div><ul>${collegati.map((f) => `<li><b>${esc(nomeDi(f.da === n.id ? f.a : f.da))}</b>: ${esc(f.motivi.join(', '))}</li>`).join('')}</ul>` : ''}
@@ -209,8 +214,8 @@ $('#tavola').addEventListener('click', (e) => {
   const l = e.target.closest('.letterina');
   const n = l && dati.nodi.find((x) => x.id === l.dataset.id);
   if (!n) return;
-  window.open(n.tipo === 'persone' ? `persona.html?nome=${encodeURIComponent(n.chiave)}`
-    : `persona.html?tipo=${encodeURIComponent(n.tipo)}&chiave=${encodeURIComponent(n.chiave)}`, '_blank');
+  vaiA(n.tipo === 'persone' ? `persona.html?nome=${encodeURIComponent(n.chiave)}`
+    : `persona.html?tipo=${encodeURIComponent(n.tipo)}&chiave=${encodeURIComponent(n.chiave)}`);
 });
 
 async function carica() {

@@ -17,15 +17,30 @@ croce rossa regione provincia ministero radio messaggio fonte fonti documento do
 nord sud est ovest zona settore quartiere rifugio ospedale stazione secondo inoltre tuttavia infatti però nessun nessuna
 sì no risposta domanda modalità demo investigatore uno due tre quattro cinque sei sette otto nove dieci venti cento mille
 primo prima secondo seconda terzo terza ultimo ultima alcuni alcune molti molte nessuno ogni questo questa
-ipotesi indizio indizi dubbi dubbio evidenze evidenza fatto fatti nota note'''.split())   # ultime: etichette delle risposte
+ipotesi indizio indizi dubbi dubbio evidenze evidenza fatto fatti nota note
+storia biografia collegamenti descrizione caratteristiche personaggi bibliografia trama geografia etimologia
+filmografia discografia opere carriera onorificenze riconoscimenti curiosità origini morfologia sistematica
+tassonomia habitat distribuzione popolazione economia cultura voci correlate esterni altri anni'''.split())
+# riga 2: etichette delle risposte; righe 3-5: titoli di sezione delle voci enciclopediche ("Biografia Nato a ...")
 
 PREFISSI_LUOGO = set('''via viale piazza piazzale corso largo vicolo ospedale stazione ponte porta chiesa scuola parco
 quartiere zona rifugio settore torre monte fiume lago hotel albergo bar banca caserma palazzo villa cascina borgo
 strada località centro istituto università clinica farmacia laboratorio deposito magazzino ufficio archivio base
-porto aeroporto campo carcere cimitero mercato fabbrica capannone bunker struttura complesso padiglione reparto'''.split())
+porto aeroporto campo carcere cimitero mercato fabbrica capannone bunker struttura complesso padiglione reparto
+ripetitore ripetitori antenna antenne traliccio cabina centralina impianto stabilimento postazione presidio sede edificio
+varco cancello checkpoint galleria tunnel diga pozzo serbatoio silo hangar molo banchina piattaforma nodo snodo
+svincolo ingresso uscita blocco ala sottostazione'''.split())
 # "Santa Chiara", "San Carlo", "Sant'Anna": nei documenti sono luoghi (laboratori, ospedali, quartieri), non persone
 PREFISSI_SANTI = {'san', 'santa', 'santo', 'santi', 'sant'}
 PREFISSI_LUOGO |= PREFISSI_SANTI
+
+# apparecchi, mezzi, gruppi e documenti: "Generatore Nord", "Squadra Alfa", "Veicolo 3" non sono persone (e nemmeno luoghi).
+# Come PREFISSI_LUOGO valgono solo come PRIMA parola, così un cognome come "Canale" o "Piano" resta una persona.
+PREFISSI_COSA = set('''generatore sensore sensori terminale dispositivo apparato apparecchio trasmettitore ricevitore
+segnale rete frequenza server computer modulo unità veicolo mezzo camion furgone ambulanza elicottero drone convoglio
+treno codice scheda registro rapporto verbale bollettino comunicato allarme allerta operazione missione progetto
+programma squadra gruppo team nucleo pattuglia turno orologio display allegato campione provetta ceppo focolaio'''.split())
+NON_PERSONA_INIZIO = PREFISSI_LUOGO | PREFISSI_COSA
 
 TITOLI = set('''signor signore signora signorina dottor dottore dottoressa dott dr professor professore professoressa
 prof capitano tenente sergente caporale agente ispettore ispettrice commissario sindaco don suor padre ingegner
@@ -64,8 +79,15 @@ def estrai_nomi(testo):
     oppure precedute da un titolo (dottor, agente, ...). Ritorna l'elenco dei nomi trovati, in ordine."""
     trovati = []
     for frase in frasi(testo):
+        fine_cosa = None      # dove finisce l'ultimo nome di luogo/cosa: "ripetitori Rame e Fosso" -> anche Fosso
         for m in RE_NOME.finditer(frase):
             prima = frase[:m.start()]
+            parola_prima = re.findall(r"[\wÀ-ÿ]+", prima)
+            # "il deposito Darsena Vuota", "ai ripetitori Rame": il nome è di quella cosa, non di una persona
+            if (parola_prima and parola_prima[-1].islower() and parola_prima[-1] in NON_PERSONA_INIZIO) \
+                    or (fine_cosa is not None and frase[fine_cosa:m.start()].strip() in ('e', 'ed', 'o', ',')):
+                fine_cosa = m.end()
+                continue
             coda = prima.rstrip()
             # dopo «, virgolette o due punti inizia un discorso diretto: conta come inizio frase
             # anche dopo un grassetto Markdown (**Risposta:** ...) o un punto elenco
@@ -89,7 +111,7 @@ def estrai_nomi(testo):
                 token.pop()
             if not token:
                 continue
-            if token[0].lower() in PREFISSI_LUOGO or any(t.lower() in NON_PERSONA for t in token):
+            if token[0].lower() in NON_PERSONA_INIZIO or any(t.lower() in NON_PERSONA for t in token):
                 continue
             if len(token) == 1 and not titolato and ultima in ('in', 'verso', 'presso', 'nel', 'nella', 'a'):
                 continue
@@ -109,6 +131,11 @@ RE_LUOGO_PREP = re.compile(rf"(?<![\w’'])(?:a|in|presso|verso)[ \t]+({PAROLA_M
 
 def chiave(testo):
     return re.sub(r'\s+', ' ', senza_accenti(testo.lower())).strip(' .,;:!?«»"')
+
+
+def chiave_id(testo):
+    """ID di documento confrontabili: il modello scrive spesso [LX4-7783] per il file LX4_7783."""
+    return re.sub(r'[\W_]+', '', testo.lower())
 
 
 def estrai_luoghi(testo, persone_note=()):
@@ -171,11 +198,11 @@ def riscontro(testo, fonti, soglia, nome=''):
     """La frase dei documenti citati ([ID]) che conferma la voce, oppure None se non c'è un riscontro vero.
     Il confronto si fa con tutto il documento citato (il modello riformula e unisce più frasi);
     come citazione si mostra la frase con più parole in comune."""
-    ids = {x.strip() for m in RE_ID.findall(testo) for x in re.split(r'[,;]', m)}
+    ids = {chiave_id(x) for m in RE_ID.findall(testo) for x in re.split(r'[,;]', m)}
     cercate = _radici(f'{nome} {RE_ID.sub("", testo)}')
     migliore, punteggio = None, 0.0
     for f in fonti:
-        if f['doc'] not in ids:
+        if chiave_id(f['doc']) not in ids and chiave_id(f.get('id_interno') or '') not in ids - {''}:
             continue
         s = _somiglianza(cercate, f['testo'])
         if s > punteggio:

@@ -41,7 +41,7 @@ from indice import Indice
 from modello import estrai_con_modello, modelli_disponibili, precarica, verifica_citazione
 from storico import Storico
 from volti import Volti
-from testo import chiave, estrai_luoghi, estrai_voci_nominate, frasi, ms, parole
+from testo import chiave, chiave_id, estrai_luoghi, estrai_voci_nominate, frasi, ms, parole
 from indice import testo_da_bytes
 
 # ------------------------------------------------------------------------- server
@@ -118,7 +118,8 @@ class Gestore(BaseHTTPRequestHandler):
         generativi = [m for m in modelli if not m.startswith(cfg.MODELLO_EMBEDDING.split(':')[0]) and 'embed' not in m]
         self.json({'modello': STATO['modello'], 'modelli': generativi, 'ollama': ok, 'demo': STATO['demo'],
                    'embedding': INDICE.embedding_ok, 'modello_embedding': cfg.MODELLO_EMBEDDING,
-                   'documenti': len(INDICE.documenti), 'brani': len(INDICE.brani), 'top_k': TOP_K})
+                   'documenti': len(INDICE.documenti), 'brani': len(INDICE.brani), 'top_k': TOP_K,
+                   'avviso': cfg.AVVISO_LAZARUS})
 
     def api_strumenti(self):
         uso = defaultdict(list)
@@ -139,7 +140,7 @@ class Gestore(BaseHTTPRequestHandler):
     def api_documenti(self):
         with INDICE.lock:
             self.json([{'id': d['id'], 'nome': d['nome'], 'titolo': d.get('titolo', ''), 'origine': d['origine'],
-                        'caratteri': len(d['testo'])} for d in INDICE.documenti.values()])
+                        'id_interno': d.get('id_interno'), 'caratteri': len(d['testo'])} for d in INDICE.documenti.values()])
 
     def api_documento(self, doc_id):
         d = INDICE.documenti.get(doc_id)
@@ -195,7 +196,7 @@ class Gestore(BaseHTTPRequestHandler):
         i suoi FILI_PER_VOCE collegamenti più forti, così la bacheca resta leggibile.
         Si ricalcola a ogni richiesta: le nuove voci compaiono appena trovate."""
         domande = {v['id']: v['domanda'] for v in STORICO.voci}
-        nodi = []
+        nodi, testi = [], {}            # testi: id del nodo -> testo (chiave) in cui cercare i luoghi
         for tipo in ('indizi', 'eventi'):
             for r in STORICO.raccogli(tipo).values():
                 fonti = [f for f in r['fonti'] if f['verificato']]
@@ -209,7 +210,8 @@ class Gestore(BaseHTTPRequestHandler):
                              'descrizione': r.get('descrizione', ''), 'citazioni': r['citazioni'], 'ultima': r['ultima'],
                              'risposte': r['risposte'], 'domande': [domande[i] for i in r['risposte'] if i in domande],
                              'persone': INDICE.persone_in(testo)})
-        radici = {n['id']: {p[:5] for p in parole(f"{n['nome']} {n['descrizione']}")} for n in nodi}
+                testi[nodi[-1]['id']] = chiave(testo)
+        radici ={n['id']: {p[:5] for p in parole(f"{n['nome']} {n['descrizione']}")} for n in nodi}
         candidati = []
         for i, a in enumerate(nodi):
             for b in nodi[i + 1:]:
@@ -253,6 +255,25 @@ class Gestore(BaseHTTPRequestHandler):
                                         f" ({', '.join(documenti)}), è citata in {p['citazioni']} "
                                         f"{'risposta' if p['citazioni'] == 1 else 'risposte'} ed è collegata a "
                                         f"{len(collegate)} {'voce' if len(collegate) == 1 else 'voci'} della bacheca."})
+            testi[id_p] = chiave(' '.join(o['contesto'] for o in occorrenze))
+
+        # luoghi: solo se compaiono davvero nei documenti (come nella colonna destra); un filo verso ogni
+        # indizio, ipotesi, evento o persona il cui testo li nomina
+        for r in STORICO.raccogli('luoghi').values():
+            documenti = self.passaggi(lambda k, c=r['chiave']: c in k)
+            if not documenti:
+                continue
+            id_l = f"luoghi:{r['chiave']}"
+            collegate = [n for n in nodi if r['chiave'] in testi.get(n['id'], '')]
+            fili += [{'da': id_l, 'a': n['id'], 'motivi': [f"parla di {r['nome']}"], 'forza': 1.5} for n in collegate]
+            frasi_doc = [{'doc': d['id'], 'frase': b['frase']} for d in documenti for b in d['brani'][:1]][:2]
+            ids = [d['id'] for d in documenti]
+            elenco_doc = ', '.join(ids[:6]) + (f' e altri {len(ids) - 6}' if len(ids) > 6 else '')
+            nodi.append({'id': id_l, 'tipo': 'luoghi', 'chiave': r['chiave'], 'nome': r['nome'], 'genere': 'luogo',
+                         'documenti': ids, 'frasi': frasi_doc, 'citazioni': r['citazioni'], 'ultima': r['ultima'],
+                         'persone': [], 'domande': [domande[i] for i in r['risposte'] if i in domande],
+                         'descrizione': f"Compare in {len(ids)} {'documento' if len(ids) == 1 else 'documenti'} ({elenco_doc}) "
+                                        f"ed è collegato a {len(collegate)} {'voce' if len(collegate) == 1 else 'voci'} della bacheca."})
         for n in nodi:
             n.pop('risposte', None)
         self.json({'nodi': nodi, 'fili': fili, 'aggiornata': time.strftime('%H:%M:%S')})
@@ -318,6 +339,8 @@ class Gestore(BaseHTTPRequestHandler):
                 return self.api_modello(self.corpo_json())
             if url.path == '/api/carica':
                 return self.api_carica()
+            if url.path == '/api/reindicizza':
+                return self.api_reindicizza()
             if url.path == '/api/rimuovi':
                 return self.api_rimuovi(self.corpo_json())
             if url.path == '/api/storico/elimina':
@@ -346,15 +369,23 @@ class Gestore(BaseHTTPRequestHandler):
         if n > MAX_UPLOAD:
             raise ValueError('File troppo grande (massimo 50 MB)')
         nome = Path(unquote(self.headers.get('X-Nome-File', 'file.txt'))).name
+        # file di una cartella: "Cartella/sotto/file.txt" -> si salva in caricati/Cartella/sotto/
+        relativo = unquote(self.headers.get('X-Percorso', '')).replace('\\', '/')
+        parti = [p for p in relativo.split('/')[:-1] if p not in ('', '.')]
+        if any(p == '..' or ':' in p for p in parti):
+            raise ValueError('Percorso non valido')
+        cartella = CARTELLA_CARICATI.joinpath(*parti)
+        if not cartella.resolve().is_relative_to(CARTELLA_CARICATI.resolve()):
+            raise ValueError('Percorso non valido')
         dati = self.rfile.read(n)
         t = time.perf_counter()
         est = Path(nome).suffix.lower()
         if est not in ESTENSIONI_OK:
-            raise ValueError(f'Formato non supportato: {est or "senza estensione"}. Usa txt, md, csv, json, docx, pdf o zip.')
-        CARTELLA_CARICATI.mkdir(exist_ok=True)
+            raise ValueError(f'Formato non supportato: {est or "senza estensione"}. Usa txt, md, csv, json, xml, html, docx, pdf, xlsx o zip.')
+        cartella.mkdir(parents=True, exist_ok=True)
         salvati = []
         if est == '.zip':
-            destinazione = CARTELLA_CARICATI / Path(nome).stem
+            destinazione = cartella / Path(nome).stem
             with zipfile.ZipFile(io.BytesIO(dati)) as z:
                 for item in z.infolist():
                     bersaglio = (destinazione / item.filename).resolve()
@@ -367,13 +398,25 @@ class Gestore(BaseHTTPRequestHandler):
                     salvati.append(str(bersaglio.relative_to(CARTELLA_CARICATI)))
         else:
             testo_da_bytes(nome, dati)          # verifica che sia leggibile prima di salvarlo
-            (CARTELLA_CARICATI / nome).write_bytes(dati)
-            salvati.append(nome)
+            (cartella / nome).write_bytes(dati)
+            salvati.append(str((cartella / nome).relative_to(CARTELLA_CARICATI)))
+        if self.headers.get('X-Senza-Indice') == '1':   # cartella: l'indice si ricostruisce una volta sola alla fine
+            return self.json({'salvati': salvati, 'ms': ms(t)})
         INDICE.ricarica()
         INDICE.calcola_embedding()
         evento = {'nome': 'carica_file', 'ms': ms(t), 'dettaglio': f'{nome}: {len(salvati)} file'}
         EVENTI_CARICAMENTO.append(evento)
         self.json({'salvati': salvati, 'documenti': len(INDICE.documenti), 'brani': len(INDICE.brani), 'ms': evento['ms']})
+
+    def api_reindicizza(self):
+        """Dopo il caricamento di una cartella: un solo ricalcolo dell'indice per tutti i file."""
+        corpo = self.corpo_json()
+        t = time.perf_counter()
+        INDICE.ricarica()
+        INDICE.calcola_embedding()
+        evento = {'nome': 'carica_file', 'ms': ms(t), 'dettaglio': f"{corpo.get('nome', 'cartella')}: {corpo.get('file', 0)} file"}
+        EVENTI_CARICAMENTO.append(evento)
+        self.json({'documenti': len(INDICE.documenti), 'brani': len(INDICE.brani), 'ms': evento['ms']})
 
     def api_rimuovi(self, corpo):
         d = INDICE.documenti.get(corpo.get('id', ''))
@@ -408,7 +451,7 @@ class Gestore(BaseHTTPRequestHandler):
         t0 = time.perf_counter()
         strumenti = []
         conversazione = motore.controlla_pertinenza(INDICE, modello, domanda, strumenti, STATO['demo'])
-        fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, precedenti, strumenti)
+        fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, precedenti, strumenti, modello, STATO['demo'])
         ricerca_ms = ms(t0)
         for s in strumenti:
             invia({'tipo': 'strumento', **s})
@@ -466,7 +509,9 @@ class Gestore(BaseHTTPRequestHandler):
 
         # ---- dopo la risposta: luoghi, indizi, eventi (fuori dal tempo misurato)
         t = time.perf_counter()
-        citate = [f for f in fonti if f['doc'] in risposta] or fonti[:3]
+        nella_risposta = chiave_id(risposta)
+        citate = [f for f in fonti if chiave_id(f['doc']) in nella_risposta
+                  or (f.get('id_interno') and chiave_id(f['id_interno']) in nella_risposta)] or fonti[:3]
         indizi, eventi = estrai_voci_nominate(risposta, fonti)   # nomi scritti dal modello, verificati nei documenti
         luoghi, origine = [], 'regole'
         if ESTRAZIONE_CON_MODELLO and not STATO['demo']:
