@@ -9,6 +9,8 @@ Contenuto
 - interfaccia\backend\       BACKEND - server Python: ricerca nei documenti, indizi, storico, API per il browser
 - interfaccia\frontend\      FRONTEND - pagine, stile e script del browser (chat, schede, bacheca)
 - interfaccia\registro\      DATI - storico delle domande, elementi trovati, cache
-- lazzaro\dati\              DATI - documenti G1-01..03
+- interfaccia\caricati\      DATI - documenti caricati a mano a ogni sessione (+ o pulsante cartella)
+- lazzaro\diario_chat.jsonl  DATI - registro della squadra (domande e risposte)
+Nessun documento e' caricato in automatico: all'inizio di ogni sessione carica la cartella dei dati (es. Dati_giorno_1).
 Mappa completa (quale file fa cosa, funzione per funzione): ARCHITETTURA.md
 Per cambiare modello: righe MODELLO / EMBEDDING in avvia_interfaccia.bat.

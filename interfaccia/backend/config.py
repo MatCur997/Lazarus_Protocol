@@ -7,7 +7,7 @@ from pathlib import Path
 QUI = Path(__file__).resolve().parent                 # interfaccia/backend (codice Python)
 INTERFACCIA = QUI.parent                              # interfaccia/
 PROGETTO = INTERFACCIA.parent                         # Lazarus_Protocol/
-CARTELLA_DATI = PROGETTO / 'lazzaro' / 'dati'          # documenti estratti dagli ZIP della squadra
+CARTELLA_DATI = None                                  # cartella letta a ogni avvio: solo con --dati (i documenti si caricano a mano)
 CARTELLA_CARICATI = INTERFACCIA / 'caricati'          # file aggiunti con il pulsante +
 CARTELLA_REGISTRO = INTERFACCIA / 'registro'          # storico, cache embedding, esclusioni
 DIARIO_NOTEBOOK = PROGETTO / 'lazzaro' / 'diario_chat.jsonl'
@@ -16,9 +16,11 @@ STATICI = INTERFACCIA / 'frontend'                    # pagine, stile e script d
 OLLAMA = 'http://127.0.0.1:11434'
 MODELLO = 'gemma4:12b'
 MODELLO_EMBEDDING = 'bge-m3'      # se manca in Ollama si usa solo la ricerca per parole chiave
-TOP_K = 6
+TOP_K = 10                # brani migliori quando i documenti pertinenti non ci stanno tutti nel prompt
+MAX_BRANI_PER_DOC = 2     # un documento lungo (o un intruso) non può occupare tutti i posti
 # ---- RAG: come si scelgono i brani (parole chiave + significato, fusi con RRF)
-PESO_CONSULTAZIONE = 0.5   # brani di consultazione (voci di Wikipedia dell'archivio): punteggio x questo. 1 = nessuna penalità
+# I documenti NON pertinenti all'indagine (clustering in pertinenza.py) arrivano al modello solo se la domanda li riguarda,
+# e non diventano mai indizi, eventi o luoghi.
 HYDE = True                # HyDE: il modello scrive una risposta ipotetica, la si cerca per significato come terza classifica
 HYDE_SOGLIA = 0.60         # HyDE solo se la ricerca per significato trova poco (migliore similarità sotto soglia). 1 = sempre
 HYDE_TOKEN = 120           # lunghezza massima della risposta ipotetica
@@ -27,7 +29,7 @@ ISTRUZIONI_HYDE = (
     '(verbale, registro, appunto, rapporto) e che risponde alla domanda. Usa il lessico tipico di quei documenti. '
     'È solo un esempio per cercare documenti simili: non serve che sia vero, non aggiungere commenti né premesse.'
 )
-NUM_CTX = 4096
+NUM_CTX = 8192
 NUM_PREDICT = 350
 NUM_PREDICT_CONVERSAZIONE = 80
 TEMPERATURA = 0.5
@@ -37,7 +39,7 @@ MAX_UPLOAD = 50 * 1024 * 1024
 # Se arriva una nuova domanda l'estrazione si interrompe e si usano le regole. False = solo regole.
 ESTRAZIONE_CON_MODELLO = False   # True = seconda chiamata al modello dopo ogni risposta: occupa Ollama e rallenta la domanda dopo
 SOGLIA_BRANI = 40                # fino a questi brani/caratteri si passano tutti i testi al modello (come lazarus.py)
-SOGLIA_CARATTERI = 8000
+SOGLIA_CARATTERI = 12000         # ~4000 token di documenti: con NUM_CTX 8192 restano istruzioni e risposta
 MEMORIA_TURNI = 0                # domande precedenti rimandate al modello (0 = come lazarus.py: nessuna memoria)
 
 ISTRUZIONI_ELEMENTI = (
@@ -153,11 +155,13 @@ ESTENSIONI_MARKUP = {'.xml', '.html', '.htm'}     # testo con tag: si tengono so
 ESTENSIONI_OK = ESTENSIONI_TESTO | ESTENSIONI_MARKUP | {'.docx', '.pdf', '.xlsx', '.zip'}
 
 STRUMENTI = {
-    'controlla_pertinenza': 'Decide se il messaggio riguarda il caso (regole, poi il modello con i soli titoli): se no, si conversa senza documenti.',
+    'rispondi_dalla_cronologia': 'Domande sulla chat ("cosa ti ho appena chiesto?"): la risposta si prende dagli scambi visibili, senza modello.',
+    'controlla_pertinenza':'Decide se il messaggio riguarda il caso (regole, poi il modello con i soli titoli): se no, si conversa senza documenti.',
     'cerca_parole_chiave': 'Ricerca BM25 sulle parole della domanda (ottima per nomi e codici).',
     'cerca_semantica': 'Ricerca per significato con embedding locali in Ollama.',
     'cerca_hyde': 'HyDE: il modello scrive una risposta ipotetica e si cercano i brani con significato simile (solo se la ricerca semantica trova poco).',
-    'fondi_risultati': 'Unisce le classifiche (Reciprocal Rank Fusion), penalizza i documenti di consultazione e sceglie i brani migliori.',
+    'fondi_risultati': 'Unisce le classifiche (Reciprocal Rank Fusion) e sceglie i brani migliori tra i documenti pertinenti.',
+    'pertinenza': 'Clustering (k-means sugli embedding) che separa i documenti pertinenti all\'indagine da quelli estranei.',
     'genera_risposta': 'Il modello linguistico scrive la risposta usando solo i brani scelti.',
     'estrai_persone': 'Riconosce le persone citate nella risposta e le collega ai documenti.',
     'estrai_elementi': 'Dopo la risposta (fuori dal tempo misurato) estrae luoghi, indizi ed eventi e controlla le citazioni.',

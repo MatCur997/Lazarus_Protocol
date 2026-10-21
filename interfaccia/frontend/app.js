@@ -86,9 +86,38 @@ $('#svuota-storico').addEventListener('click', async () => {
   try { await postJson('/api/storico/svuota', {}); await aggiornaTutto(); } catch (err) { alert(err.message); }
 });
 
+// "Svuota caricati": nella scheda Documenti e, sempre visibile, il cestino accanto ai pulsanti di caricamento
+async function svuotaCaricati() {
+  const n = stato.documenti.filter((d) => d.origine === 'caricato').length;
+  if (!n) return sistema('Non ci sono documenti caricati da togliere.');
+  if (!confirm(`Togliere tutti i ${n} documenti caricati? I file vengono cancellati dalla cartella caricati. `
+    + 'Non si può annullare.')) return;
+  const bottoni = [$('#svuota-caricati'), $('#svuota-caricati-chat')];
+  bottoni.forEach((b) => { b.disabled = true; });
+  $('#svuota-caricati').textContent = 'svuoto…';
+  sistema(`Tolgo ${n} documenti caricati e aggiorno l'indice…`);
+  try {
+    const r = await postJson('/api/caricati/svuota', {});
+    $('#file-in-esame').innerHTML = '';
+    sistema(`Caricati svuotati: ${r.tolti} file tolti, restano ${r.documenti} documenti (${r.ms} ms).`);
+    await aggiornaTutto();
+  } catch (err) {
+    sistema('Errore nello svuotamento: ' + err.message);
+  } finally {
+    bottoni.forEach((b) => { b.disabled = false; });
+    $('#svuota-caricati').textContent = 'Svuota caricati';
+  }
+}
+$('#svuota-caricati').addEventListener('click', svuotaCaricati);
+$('#svuota-caricati-chat').addEventListener('click', svuotaCaricati);
+
 function disegnaSinistra() {
   $('#titolo-sinistra').textContent = TITOLI[stato.scheda];
   $('#svuota-storico').hidden = stato.scheda !== 'storico' || !stato.storico.length;
+  const caricati = stato.documenti.filter((d) => d.origine === 'caricato').length;
+  $('#svuota-caricati').hidden = stato.scheda !== 'documenti' || !caricati;
+  $('#svuota-caricati-chat').hidden = !caricati;
+  $('#svuota-caricati-chat').title = `Togli tutti i ${caricati} documenti caricati`;
   const filtro = $('#filtro-sinistra').value.trim().toLowerCase();
   const lista = $('#lista-sinistra');
   ({ storico: disegnaStorico, strumenti: disegnaStrumenti, tempi: disegnaTempi, documenti: disegnaDocumenti })[stato.scheda](lista, filtro);
@@ -122,6 +151,8 @@ $('#lista-sinistra').addEventListener('click', (e) => {
     return postJson('/api/storico/elimina', { id: voce.dataset.id }).then(aggiornaTutto).catch((err) => alert(err.message));
   }
   if (e.target.closest('[data-rimuovi]')) return rimuoviDocumento(voce.dataset.id);
+  const segna = e.target.closest('[data-sospetto]');
+  if (segna) return segnaSospetto(voce.dataset.id, { true: true, false: false, auto: null }[segna.dataset.sospetto]);
   if (e.target.closest('[data-documento]')) return apri(`persona.html?doc=${encodeURIComponent(voce.dataset.id)}`);
   if (e.target.closest('[data-apri]') && v) {
     stato.aperte.has(v.id) ? stato.aperte.delete(v.id) : stato.aperte.add(v.id);
@@ -184,24 +215,52 @@ function disegnaTempi(lista, filtro) {
 }
 
 function disegnaDocumenti(lista, filtro) {
-  $('#conta-sinistra').textContent = `${stato.documenti.length} file`;
-  const voci = stato.documenti.filter((d) => !filtro || (d.nome + ' ' + d.titolo).toLowerCase().includes(filtro));
+  const pertinenti = stato.documenti.filter((d) => !d.consultazione).length;
+  $('#conta-sinistra').textContent = `${stato.documenti.length} file · ${pertinenti} pertinenti`;
+  $('#conta-sinistra').title = stato.server.pertinenza?.dettaglio || '';
+  // il filtro trova anche "sospetto", "non pertinente" e "pertinente"
+  const testoFiltro = (d) => `${d.nome} ${d.titolo} ${d.sospetto ? 'sospetto' : ''} ${d.consultazione ? 'non pertinente' : 'pertinente'} ${d.giorno ? `giorno ${d.giorno}` : ''}`.toLowerCase();
+  const voci = stato.documenti.filter((d) => !filtro || testoFiltro(d).includes(filtro));
   lista.innerHTML = voci.map((d) => `
     <article class="voce" data-id="${esc(d.id)}">
-      <div class="testa"><span>${esc(d.nome)}</span><span class="etichetta ${d.origine === 'caricato' ? 'bordeaux' : ''}">${d.origine}</span></div>
+      <div class="testa"><span>${esc(d.nome)}</span><span>
+        ${d.sospetto ? `<span class="etichetta sospetto" title="${esc(d.sospetto)}${d.sospetto_manuale === true ? ' (segnato a mano)' : ''}">⚠ sospetto</span> ` : ''}
+        ${d.consultazione ? `<span class="etichetta" title="Escluso dal clustering di pertinenza${d.pertinenza != null ? ` (somiglianza al caso ${d.pertinenza})` : ''}: il modello ne parla solo se glielo chiedi, e non diventa mai un indizio">non pertinente</span> ` : ''}
+        ${d.giorno ? `<span class="etichetta" title="Giorno dell'indagine in cui è arrivato il documento">giorno ${d.giorno}</span> ` : ''}
+        <span class="etichetta ${d.origine === 'caricato' ? 'bordeaux' : ''}">${d.origine}</span></span></div>
       <div class="domanda" data-documento>${esc(d.titolo)}</div>
       <div class="piede"><span class="etichetta">${d.caratteri} caratteri</span>
-        <span>${d.origine === 'caricato' ? `<button class="btn-piccolo grigio" data-rimuovi>${ICONE.x}Rimuovi</button> ` : ''}<button class="btn-piccolo" data-documento>${ICONE.apri}Apri</button></span></div>
+        <span><button class="btn-piccolo grigio" data-sospetto="${d.sospetto ? 'false' : 'true'}"
+          title="${d.sospetto ? 'Non è un documento manipolatorio: togli il segnale' : 'Segna come documento manipolatorio'}">${d.sospetto ? 'Non sospetto' : 'Segna sospetto'}</button>
+        ${d.sospetto_manuale != null ? '<button class="btn-piccolo grigio" data-sospetto="auto" title="Torna al riconoscimento automatico">Automatico</button> ' : ''}
+        ${d.origine === 'caricato' ? `<button class="btn-piccolo grigio" data-rimuovi>${ICONE.x}Rimuovi</button> ` : ''}<button class="btn-piccolo" data-documento>${ICONE.apri}Apri</button></span></div>
     </article>`).join('') || '<div class="vuoto">Nessun documento.</div>';
 }
 
-async function rimuoviDocumento(id) {
+async function segnaSospetto(id, valore) {
   try {
-    await postJson('/api/rimuovi', { id });
-    document.querySelectorAll(`.file-chip[data-doc="${CSS.escape(id)}"]`).forEach((c) => c.remove());
-    sistema(`Rimosso ${id} dall'indice.`);
+    const r = await postJson('/api/documento/sospetto', { id, sospetto: valore });
+    sistema(r.sospetto ? `${id} segnato come sospetto: ${r.sospetto}.` : `${id} non è più segnato come sospetto.`);
     await aggiornaTutto();
   } catch (err) { sistema('Errore: ' + err.message); }
+}
+
+async function rimuoviDocumento(id) {
+  // la voce mostra subito che si sta lavorando: l'indice si ricostruisce (qualche secondo con un archivio grande)
+  const voce = document.querySelector(`#lista-sinistra .voce[data-id="${CSS.escape(id)}"]`);
+  const bottone = voce?.querySelector('[data-rimuovi]');
+  if (bottone) { bottone.disabled = true; bottone.textContent = 'rimuovo…'; }
+  voce?.classList.add('in-corso');
+  try {
+    const r = await postJson('/api/rimuovi', { id });
+    document.querySelectorAll(`.file-chip[data-doc="${CSS.escape(id)}"]`).forEach((c) => c.remove());
+    sistema(`Rimosso ${id}: indice aggiornato, ${r.documenti} documenti.`);
+    await aggiornaTutto();
+  } catch (err) {
+    sistema('Errore nella rimozione: ' + err.message);
+    if (bottone) { bottone.disabled = false; bottone.innerHTML = `${ICONE.x}Rimuovi`; }
+    voce?.classList.remove('in-corso');
+  }
 }
 
 // ------------------------------------------------------- pannello destro
@@ -336,7 +395,10 @@ function completaRisposta(el, voce) {
   const t = voce.tempi;
   el.querySelector('.extra').innerHTML = `
     ${voce.errore ? `<div class="errore">${esc(voce.errore)}</div>` : ''}
-    ${voce.fonti.length ? `<div class="fila">Fonti: ${voce.fonti.map((f) => `<span class="chip" data-doc="${esc(f.doc)}" title="${esc(f.estratto)}">${ICONE.file}${esc(f.doc)}</span>`).join('')}</div>` : ''}
+    ${voce.fonti.length ? `<div class="fila">Fonti: ${voce.fonti.map((f) => {
+      const sospetto = stato.documenti.find((d) => d.id === f.doc)?.sospetto;   // documenti che danno ordini all'assistente
+      return `<span class="chip${sospetto ? ' sospetto' : ''}" data-doc="${esc(f.doc)}" title="${esc(sospetto ? `SOSPETTO: ${sospetto}\n\n${f.estratto}` : f.estratto)}">${sospetto ? '⚠ ' : ICONE.file}${esc(f.doc)}</span>`;
+    }).join('')}</div>` : ''}
     ${voce.persone.length ? `<div class="fila">Persone: ${voce.persone.map((p) => `<span class="chip persona" data-persona="${esc(p)}">${esc(p)}</span>`).join('')}</div>` : ''}
     <div class="tempi-msg">prima parola <b>${sec(t.prima_parola_ms)}</b> · totale <b>${sec(t.totale_ms)}</b> · ricerca ${t.ricerca_ms} ms${t.tok_s ? ` · ${t.tok_s} tok/s` : ''} · ${esc(voce.modello)}</div>
     <details class="dett-strumenti"><summary>${voce.strumenti.length} strumenti usati</summary>
@@ -357,7 +419,8 @@ async function chiedi(domanda, rieseguitaDa = null) {
   try {
     const r = await fetch('/api/chiedi', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domanda, modello: $('#modello').value, rieseguita_da: rieseguitaDa }),
+      // vista = scambi visibili in chat: sono la memoria per "cosa ti ho appena chiesto?" (Pulisci la vista la azzera)
+      body: JSON.stringify({ domanda, modello: $('#modello').value, rieseguita_da: rieseguitaDa, vista: leggiVista() }),
     });
     if (!r.ok) throw new Error((await r.json()).errore);
     const lettore = r.body.getReader();
@@ -559,9 +622,9 @@ function ripristinaVista() {
   }
 }
 $('#pulisci').addEventListener('click', () => scriviVista([]));
-$('.accesso-segreto').addEventListener('click', (e) => {   // mentre il modello scrive: nuova scheda
-  if (stato.occupato) { e.preventDefault(); window.open('bacheca.html', '_blank'); }
-});
+document.querySelectorAll('.accessi a').forEach((a) => a.addEventListener('click', (e) => {   // mentre il modello scrive: nuova scheda
+  if (stato.occupato) { e.preventDefault(); window.open(a.getAttribute('href'), '_blank'); }
+}));
 
 // ---------------------------------------------------------------- avvio
 benvenuto();
