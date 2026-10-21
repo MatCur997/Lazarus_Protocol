@@ -94,6 +94,11 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .tema-btn { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px solid var(--testata-bordo); border-radius: 2px;
   padding: 7px 10px; color: var(--testata-tenue); font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; white-space: nowrap; }
 .tema-btn:hover { color: var(--testata-testo); border-color: var(--testata-testo); }
+.frecce { display: flex; gap: 6px; }
+.frecce .tema-btn { padding: 7px; }
+.frecce .tema-btn svg { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.frecce .tema-btn:disabled { opacity: .35; cursor: default; }
+.frecce .tema-btn:disabled:hover { color: var(--testata-tenue); border-color: var(--testata-bordo); }
 .tema-btn svg { width: 15px; height: 15px; }
 .tema-btn span { display: inline-flex; align-items: center; gap: 7px; }
 .tema-btn .per-chiaro, :root[data-tema="scuro"] .tema-btn .per-scuro { display: none; }

@@ -55,9 +55,10 @@ function disegnaStato() {
   const ok = stato.storico.filter((v) => !v.errore);
   $('#stato-media').lastChild.textContent = `media ${sec(media(ok.map((v) => v.tempi.totale_ms)))} · prima parola ${sec(media(ok.map((v) => v.tempi.prima_parola_ms).filter((x) => x != null)))}`;
   const pronto = s.demo || s.ollama;
-  $('#punto-chat').className = 'punto ' + (s.demo ? 'attesa' : pronto ? 'ok' : 'ko');
+  $('#punto-chat').className = 'punto ' + (s.demo ? 'attesa' : !pronto ? 'ko' : s.avviso ? 'attesa' : 'ok');
   $('#sotto-chat').textContent = s.demo ? 'Modalità demo: risposte finte per provare l\'interfaccia'
-    : pronto ? `${s.modello} · in ascolto · ${s.top_k} brani per domanda` : 'Ollama non raggiungibile: avvialo e ricarica la pagina';
+    : !pronto ? 'Ollama non raggiungibile: avvialo e ricarica la pagina'
+    : s.avviso ? `Attenzione: ${s.avviso}` : `${s.modello} · in ascolto · ${s.top_k} brani per domanda`;
 }
 
 $('#modello').addEventListener('change', async (e) => {
@@ -68,7 +69,7 @@ $('#modello').addEventListener('change', async (e) => {
 });
 
 $('#cerca-documenti').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && e.target.value.trim()) window.open(`persona.html?q=${encodeURIComponent(e.target.value.trim())}`, '_blank');
+  if (e.key === 'Enter' && e.target.value.trim()) apri(`persona.html?q=${encodeURIComponent(e.target.value.trim())}`);
 });
 
 // ------------------------------------------------------ pannello sinistro
@@ -116,10 +117,12 @@ $('#lista-sinistra').addEventListener('click', (e) => {
   const v = stato.storico.find((x) => x.id === voce.dataset.id);
   if (e.target.closest('[data-riesegui]')) return chiedi(v.domanda, v.id);
   if (e.target.closest('[data-elimina]')) {
+    const breve = v.domanda.length > 80 ? `${v.domanda.slice(0, 80)}…` : v.domanda;
+    if (!confirm(`Cancellare dallo storico la domanda «${breve}» e la sua risposta? Non si può annullare.`)) return;
     return postJson('/api/storico/elimina', { id: voce.dataset.id }).then(aggiornaTutto).catch((err) => alert(err.message));
   }
   if (e.target.closest('[data-rimuovi]')) return rimuoviDocumento(voce.dataset.id);
-  if (e.target.closest('[data-documento]')) return window.open(`persona.html?doc=${encodeURIComponent(voce.dataset.id)}`, '_blank');
+  if (e.target.closest('[data-documento]')) return apri(`persona.html?doc=${encodeURIComponent(voce.dataset.id)}`);
   if (e.target.closest('[data-apri]') && v) {
     stato.aperte.has(v.id) ? stato.aperte.delete(v.id) : stato.aperte.add(v.id);
     disegnaSinistra();
@@ -205,8 +208,10 @@ async function rimuoviDocumento(id) {
 const COLORI = ['#7b1e34', '#5c5c66', '#97304a', '#45454d', '#6b2537', '#73737d'];
 const colore = (n) => COLORI[[...n].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORI.length];
 const iniziali = (n) => n.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
-const apriPersona = (nome) => window.open(`persona.html?nome=${encodeURIComponent(nome)}`, '_blank');
-const apriElemento = (tipo, chiave) => window.open(`persona.html?tipo=${tipo}&chiave=${encodeURIComponent(chiave)}`, '_blank');
+// mentre il modello scrive si apre una nuova scheda: lasciare la pagina interromperebbe la risposta
+const apri = (url) => (stato.occupato ? window.open(url, '_blank') : vaiA(url));
+const apriPersona = (nome) => apri(`persona.html?nome=${encodeURIComponent(nome)}`);
+const apriElemento = (tipo, chiave) => apri(`persona.html?tipo=${tipo}&chiave=${encodeURIComponent(chiave)}`);
 const docs = (n) => `${n} document${n === 1 ? 'o' : 'i'}`;
 
 function vocePersona(p) {
@@ -268,7 +273,7 @@ messaggi.addEventListener('click', (e) => {
   const prova = e.target.closest('[data-prova]');
   if (prova) return chiedi(prova.textContent);
   const cit = e.target.closest('[data-doc]');
-  if (cit) return window.open(`persona.html?doc=${encodeURIComponent(cit.dataset.doc)}`, '_blank');
+  if (cit) return apri(`persona.html?doc=${encodeURIComponent(cit.dataset.doc)}`);
   const p = e.target.closest('[data-persona]');
   if (p) return apriPersona(p.dataset.persona);
   const el = e.target.closest('[data-elemento]');
@@ -285,11 +290,21 @@ function sistema(testo) {
 }
 
 // testo del modello -> HTML: Markdown (comune.js), citazioni [G1-02] cliccabili e persone evidenziate
+// Il modello cita i documenti col nome del file ([G1-02]) o con l'ID scritto dentro ([ARCH-6408] = documento_0421,
+// [LX4-7783] = LX4_7783): si confrontano senza trattini, spazi e maiuscole.
+const chiaveId = (t) => t.toLowerCase().replace(/[\W_]+/g, '');
+function documentoCitato(testo) {
+  const k = chiaveId(testo.trim().replace(/\.(txt|md|docx|pdf|csv|jsonl?|xml|html?|xlsx)$/i, ''));
+  if (!k) return null;
+  const doc = stato.documenti.find((x) => chiaveId(x.id) === k) || stato.documenti.find((x) => x.id_interno && chiaveId(x.id_interno) === k);
+  return doc ? doc.id : null;
+}
+
 function formatta(testo, persone = []) {
   let h = markdown(testo);
   h = h.replace(/\[([^\[\]\n]{1,60})\]/g, (m, interno) => interno.split(/[,;]\s*/).map((d) => {
-    const id = d.trim().replace(/\.(txt|md|docx|pdf|csv|json)$/i, '');
-    return stato.documenti.some((x) => x.id === id) ? `<span class="cit" data-doc="${esc(id)}">${esc(d.trim())}</span>` : `[${esc(d)}]`;
+    const id = documentoCitato(d);
+    return id ? `<span class="cit" data-doc="${esc(id)}" title="${esc(id)}">${esc(d.trim())}</span>` : `[${esc(d)}]`;
   }).join(' '));
   for (const p of persone) {
     const re = new RegExp(`(^|[^\\wÀ-ÿ>])(${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?![\\wÀ-ÿ])`, 'g');
@@ -298,15 +313,15 @@ function formatta(testo, persone = []) {
   return h;
 }
 
-function aggiungiUtente(testo, rieseguita) {
+function aggiungiUtente(testo, rieseguita, orario = ora()) {
   $('.benvenuto', messaggi)?.remove();
-  messaggi.insertAdjacentHTML('beforeend', `<div class="msg utente"><span class="ora">${ora()}${rieseguita ? ' · rieseguita' : ''}</span>${esc(testo)}</div>`);
+  messaggi.insertAdjacentHTML('beforeend', `<div class="msg utente"><span class="ora">${orario}${rieseguita ? ' · rieseguita' : ''}</span>${esc(testo)}</div>`);
 }
 
-function nuovaRisposta() {
+function nuovaRisposta(orario = ora()) {
   const el = document.createElement('div');
   el.className = 'msg modello';
-  el.innerHTML = `<span class="ora">${ora()}</span><div class="chi"><span class="avatar" style="width:30px;height:30px">
+  el.innerHTML = `<span class="ora">${orario}</span><div class="chi"><span class="avatar" style="width:30px;height:30px">
     <svg viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M4 10h16M6 10l1.5-5h9L18 10"/><circle cx="8" cy="15" r="3"/><circle cx="16" cy="15" r="3"/></svg></span>Investigatore</div>
     <div class="corpo cursore"></div><div class="extra"><div class="fila stato-ricerca">cerco nei documenti…</div></div>`;
   messaggi.appendChild(el);
@@ -361,6 +376,7 @@ async function chiedi(domanda, rieseguitaDa = null) {
         else if (ev.tipo === 'token') { testo += ev.testo; corpo.innerHTML = formatta(testo); scorri(); }
         else if (ev.tipo === 'fine') {
           completaRisposta(el, ev.voce);
+          ricordaInVista(ev.voce.id);
           libera();      // la risposta è completa: si può già fare un'altra domanda
           if (!ev.voce.errore) el.querySelector('.extra').insertAdjacentHTML('beforeend', '<div class="fila riga-elementi">cerco luoghi, indizi ed eventi…</div>');
         } else if (ev.tipo === 'elementi') {
@@ -411,6 +427,79 @@ $('#pulisci').addEventListener('click', benvenuto);
 // ------------------------------------------------------------- file (+)
 $('#piu').addEventListener('click', () => $('#file').click());
 $('#file').addEventListener('change', (e) => { carica([...e.target.files]); e.target.value = ''; });
+$('#piu-cartella').addEventListener('click', () => $('#cartella').click());
+$('#cartella').addEventListener('change', (e) => {
+  // webkitRelativePath = "Cartella/sotto/file.txt"
+  caricaCartelle([...e.target.files].map((f) => ({ file: f, percorso: f.webkitRelativePath || f.name })));
+  e.target.value = '';
+});
+
+const ESTENSIONI_OK = ['.txt', '.md', '.csv', '.json', '.jsonl', '.log', '.xml', '.html', '.htm', '.docx', '.pdf', '.xlsx', '.zip'];
+const estensioneOk = (nome) => ESTENSIONI_OK.some((e) => nome.toLowerCase().endsWith(e));
+
+// Cartelle: un chip per cartella, i file vanno su uno alla volta e l'indice si ricostruisce una volta sola alla fine.
+async function caricaCartelle(voci) {
+  const gruppi = new Map();
+  for (const v of voci) {
+    const radice = v.percorso.split('/')[0];
+    if (!gruppi.has(radice)) gruppi.set(radice, []);
+    gruppi.get(radice).push(v);
+  }
+  for (const [nome, tutti] of gruppi) {
+    const buoni = tutti.filter((v) => estensioneOk(v.file.name));
+    const saltati = tutti.length - buoni.length;
+    if (!buoni.length) { sistema(`${nome}: nessun file leggibile (txt, md, csv, json, xml, html, docx, pdf, xlsx, zip).`); continue; }
+    const chip = document.createElement('span');
+    chip.className = 'file-chip carico';
+    $('#file-in-esame').appendChild(chip);
+    const salvati = [], errori = [];
+    for (const [i, v] of buoni.entries()) {
+      chip.innerHTML = `${ICONE.file}<span>${esc(nome)} · carico ${i + 1}/${buoni.length}…</span>`;
+      try {
+        const r = await api('/api/carica', { method: 'POST', body: v.file, headers: {
+          'X-Nome-File': encodeURIComponent(v.file.name), 'X-Percorso': encodeURIComponent(v.percorso), 'X-Senza-Indice': '1' } });
+        salvati.push(...r.salvati);
+      } catch (err) { errori.push(`${v.percorso}: ${err.message}`); }
+    }
+    if (!salvati.length) { chip.remove(); sistema(`${nome}: nessun file caricato.\n${errori.join('\n')}`); continue; }
+    chip.innerHTML = `${ICONE.file}<span>${esc(nome)} · aggiorno l'indice…</span>`;
+    try {
+      const r = await postJson('/api/reindicizza', { nome, file: salvati.length });
+      chip.className = 'file-chip';
+      chip.title = salvati.join('\n');
+      chip.innerHTML = `${ICONE.file}<span>${esc(nome)} (${salvati.length} file)</span>`;
+      sistema(`In esame: cartella ${nome} → ${salvati.length} file aggiunti`
+        + (saltati ? `, ${saltati} saltati perché di formato non supportato` : '')
+        + `, indice di ${r.documenti} documenti (${r.ms} ms).` + (errori.length ? `\nNon caricati:\n${errori.join('\n')}` : ''));
+    } catch (err) { chip.remove(); sistema(`${nome}: ${err.message}`); }
+  }
+  aggiornaTutto().catch(() => {});
+}
+
+// Trascinando, le cartelle arrivano come voci da esplorare (sottocartelle comprese).
+async function vociTrascinate(dt) {
+  const entrate = [...dt.items].map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+  if (!entrate.some((e) => e.isDirectory)) return null;     // solo file: caricamento normale
+  const voci = [], file = [];
+  const leggiTutte = (lettore) => new Promise((ok, ko) => {
+    const tutte = [];
+    const giro = () => lettore.readEntries((parte) => { if (!parte.length) return ok(tutte); tutte.push(...parte); giro(); }, ko);
+    giro();
+  });
+  async function visita(e, percorso) {
+    if (e.isFile) {
+      const f = await new Promise((ok, ko) => e.file(ok, ko));
+      voci.push({ file: f, percorso: percorso + f.name });
+    } else if (e.isDirectory) {
+      for (const figlio of await leggiTutte(e.createReader())) await visita(figlio, `${percorso}${e.name}/`);
+    }
+  }
+  for (const e of entrate) {
+    if (e.isDirectory) await visita(e, '');
+    else file.push(await new Promise((ok, ko) => e.file(ok, ko)));
+  }
+  return { voci, file };
+}
 
 async function carica(files) {
   for (const f of files) {
@@ -442,9 +531,39 @@ let profondita = 0;
 zona.addEventListener('dragenter', (e) => { if ([...e.dataTransfer.types].includes('Files')) { profondita++; $('#trascina').classList.remove('nascosto'); } });
 zona.addEventListener('dragleave', () => { if (--profondita <= 0) { profondita = 0; $('#trascina').classList.add('nascosto'); } });
 zona.addEventListener('dragover', (e) => e.preventDefault());
-zona.addEventListener('drop', (e) => { e.preventDefault(); profondita = 0; $('#trascina').classList.add('nascosto'); carica([...e.dataTransfer.files]); });
+zona.addEventListener('drop', async (e) => {
+  e.preventDefault(); profondita = 0; $('#trascina').classList.add('nascosto');
+  const soloFile = [...e.dataTransfer.files];
+  const trascinati = await vociTrascinate(e.dataTransfer).catch(() => null);
+  if (!trascinati) return carica(soloFile);
+  if (trascinati.file.length) await carica(trascinati.file);
+  caricaCartelle(trascinati.voci);
+});
+
+// ------------------------------------------- chat ritrovata tornando indietro
+// Le schede si aprono nella stessa finestra: le risposte visibili si ricordano (solo in questa scheda del browser)
+// e, tornando con la freccia indietro, si ridisegnano dallo storico.
+const CHIAVE_VISTA = 'lazzaro-vista';
+const leggiVista = () => { try { return JSON.parse(sessionStorage.getItem(CHIAVE_VISTA)) || []; } catch { return []; } };
+const scriviVista = (ids) => { try { sessionStorage.setItem(CHIAVE_VISTA, JSON.stringify(ids)); } catch { /* memoria non disponibile */ } };
+const ricordaInVista = (id) => scriviVista([...leggiVista().filter((x) => x !== id), id]);
+
+function ripristinaVista() {
+  const voci = leggiVista().map((id) => stato.storico.find((v) => v.id === id)).filter(Boolean);
+  for (const v of voci) {
+    const orario = (v.ora || '').slice(11, 16);
+    aggiungiUtente(v.domanda, v.rieseguita_da, orario);
+    const el = nuovaRisposta(orario);
+    completaRisposta(el, v);
+    if (v.elementi) mostraElementi(el, v.elementi);
+  }
+}
+$('#pulisci').addEventListener('click', () => scriviVista([]));
+$('.accesso-segreto').addEventListener('click', (e) => {   // mentre il modello scrive: nuova scheda
+  if (stato.occupato) { e.preventDefault(); window.open('bacheca.html', '_blank'); }
+});
 
 // ---------------------------------------------------------------- avvio
 benvenuto();
-aggiornaTutto().catch((err) => sistema('Server non raggiungibile: ' + err.message));
+aggiornaTutto().then(ripristinaVista).catch((err) => sistema('Server non raggiungibile: ' + err.message));
 setInterval(() => { if (!stato.occupato) api('/api/stato').then((s) => { stato.server = s; disegnaStato(); }).catch(() => {}); }, 10000);
