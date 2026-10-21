@@ -32,13 +32,15 @@ def modelli_disponibili():
 def precarica(modello):
     """Carica il modello in memoria e ce lo lascia (keep_alive=-1): la prima domanda non paga il caricamento."""
     try:
-        with ollama('/api/generate', {'model': modello, 'keep_alive': -1}, timeout=300) as r:
+        # stesso num_ctx delle domande: senza, Ollama carica il modello con un altro contesto e lo ricarica alla prima domanda
+        with ollama('/api/generate', {'model': modello, 'keep_alive': -1, 'options': {'num_ctx': cfg.NUM_CTX}}, timeout=300) as r:
             r.read()
     except Exception as e:
         print(f'  Precaricamento di {modello} non riuscito: {e}')
 
 
 def apri_chat(corpo):
+    corpo = cfg.prepara_richiesta(corpo)      # niente riuso dello stato di domande precedenti, contesto mai pieno
     try:
         return ollama('/api/chat', corpo)
     except urllib.error.HTTPError as e:
@@ -68,6 +70,16 @@ def genera_ollama(modello, messaggi, num_predict=None):
                 yield 'fine', {'token': pezzo.get('eval_count', 0),
                                'gen_s': pezzo.get('eval_duration', 0) / 1e9,
                                'prompt_token': pezzo.get('prompt_eval_count', 0)}
+
+
+def risposta_ipotetica(modello, domanda):
+    """HyDE: un brano inventato che "somiglia" ai documenti che rispondono alla domanda. Serve solo a cercarli
+    per significato; non viene mai mostrato né passato al modello come fonte."""
+    corpo = {'model': modello, 'stream': False, 'keep_alive': -1, 'think': False,
+             'options': {'temperature': 0.3, 'num_ctx': cfg.NUM_CTX, 'num_predict': cfg.HYDE_TOKEN},
+             'messages': [{'role': 'system', 'content': cfg.ISTRUZIONI_HYDE}, {'role': 'user', 'content': domanda}]}
+    with apri_chat(corpo) as r:
+        return json.loads(r.read())['message']['content'].strip()
 
 
 def estrai_con_modello(modello, fonti, domanda, risposta, annullato):

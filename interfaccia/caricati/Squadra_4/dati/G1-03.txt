@@ -1,0 +1,4 @@
+ID G1-03
+Controllo radio
+
+Due chiamate della centrale hanno la stessa pausa di tre secondi e la stessa frase finale. Potrebbe essere una registrazione. Questo dettaglio, da solo, non dimostra chi stia trasmettendo.

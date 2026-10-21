@@ -4,6 +4,31 @@ const $ = (s, r = document) => r.querySelector(s);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const reEsc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// ------------------------------------------------------------- navigazione
+// Le schede si aprono nella stessa finestra; le frecce in alto a sinistra tornano indietro o vanno avanti
+// tra le pagine viste (come quelle del browser, utili quando l'app è aperta senza la barra del browser).
+const vaiA = (url) => { location.href = url; };
+
+function frecceNavigazione() {
+  const riga = $('.riga-alta');
+  if (!riga || $('.frecce', riga)) return;
+  riga.insertAdjacentHTML('afterbegin', `<div class="frecce">
+    <button class="tema-btn" data-verso="-1" title="Indietro (pagina precedente)" aria-label="Indietro"><svg viewBox="0 0 24 24"><path d="M15 18 9 12l6-6"/></svg></button>
+    <button class="tema-btn" data-verso="1" title="Avanti (pagina successiva)" aria-label="Avanti"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button></div>`);
+  const [indietro, avanti] = riga.querySelectorAll('.frecce button');
+  indietro.addEventListener('click', () => history.back());
+  avanti.addEventListener('click', () => history.forward());
+  const aggiorna = () => {   // la Navigation API dice se c'è una pagina prima/dopo; senza, si lasciano attive
+    const nav = window.navigation;
+    indietro.disabled = nav ? !nav.canGoBack : history.length < 2;
+    avanti.disabled = nav ? !nav.canGoForward : false;
+  };
+  aggiorna();
+  window.navigation?.addEventListener('currententrychange', aggiorna);
+  addEventListener('pageshow', aggiorna);
+}
+frecceNavigazione();
+
 // ------------------------------------------------------------------ volti
 // Miniatura rotonda del volto di una persona: ritaglia il riquadro "viso" indicato in volti/volti.json.
 // `volto` arriva dal server ({file, larghezza, altezza, viso: {x, y, lato}}); senza volto restano le iniziali.
