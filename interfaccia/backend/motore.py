@@ -28,6 +28,53 @@ def controlla_pertinenza(indice, modello, domanda, strumenti, demo=False):
     return conversazione
 
 
+# Ricerca a salti: pratica -> lotto -> armadio sono in documenti diversi e la domanda nomina solo il primo anello.
+# Dai documenti migliori si prendono i codici (M462, K491...) e si cercano come parola intera: "M462" non è "M462-050".
+RE_CODICE = re.compile(r'(?<![\w-])([A-Z]{1,4}-?\d{2,5})(?![\w]|-\d)')
+RE_ID_DOCUMENTO = re.compile(r'^(?:LX\d?|G\d|ARCH)-?\d+$')
+SALTI, CODICI_PER_SALTO, BRANI_PER_CODICE, FONTI_DI_PARTENZA, MAX_CITAZIONI_GIA_TROVATE = 2, 3, 3, 3, 2
+
+
+def codici_in(testo):
+    return [c for c in dict.fromkeys(RE_CODICE.findall(testo)) if not RE_ID_DOCUMENTO.match(c)]
+
+
+def segui_riferimenti(fonti, caso, strumenti):
+    """Aggiunge ai brani trovati quelli che contengono, come codice esatto, i riferimenti dei brani migliori.
+    Un codice già presente in più di MAX_CITAZIONI_GIA_TROVATE brani è già ben coperto e non si segue."""
+    t = time.perf_counter()
+    presenti = {(f['doc'], f['n']) for f in fonti}
+    seguiti, aggiunti, partenza = set(), [], [f for f in fonti if not f['consultazione']]
+    partenza = sorted(partenza, key=lambda f: f['punteggio'], reverse=True)[:FONTI_DI_PARTENZA]
+    for _ in range(SALTI):
+        nuovi = []
+        for f in partenza:
+            for c in codici_in(f['testo']):
+                if c in seguiti:
+                    continue
+                esatto = re.compile(rf'(?<![\w-]){re.escape(c)}(?![\w]|-\d)')
+                if sum(bool(esatto.search(x['testo'])) for x in fonti) > MAX_CITAZIONI_GIA_TROVATE:
+                    seguiti.add(c)
+                    continue
+                trovati = [b for b in caso if (b['doc'], b['n']) not in presenti and esatto.search(b['testo'])]
+                if not trovati:
+                    continue
+                seguiti.add(c)
+                for b in trovati[:BRANI_PER_CODICE]:
+                    presenti.add((b['doc'], b['n']))
+                    nuovi.append(fonte_da_brano(b, f['punteggio']))
+                if len(seguiti) >= SALTI * CODICI_PER_SALTO:
+                    break
+        if not nuovi:
+            break
+        aggiunti += nuovi
+        partenza = nuovi
+    if aggiunti:
+        strumenti.append({'nome': 'segui_riferimenti', 'ms': ms(t),
+                          'dettaglio': f'codici {", ".join(sorted(seguiti))}: aggiunti ' + ', '.join(f['doc'] for f in aggiunti)})
+    return fonti + aggiunti
+
+
 def cerca_fonti(indice, domanda, precedenti, strumenti, modello=None, demo=False, traccia=None):
     """Sceglie i brani da dare al modello. `strumenti` si riempie con {nome, ms, dettaglio} di ogni passo."""
     # solo le domande di seguito molto corte ("e cosa dice?") cercano anche con la domanda precedente:
@@ -60,6 +107,7 @@ def cerca_fonti(indice, domanda, precedenti, strumenti, modello=None, demo=False
                           'dettaglio': f'richiesti tutti i documenti: {len(caso)} brani del caso passati interi'})
         return [fonte_da_brano(b) for b in caso]
     fonti = indice.cerca(query, strumenti, ipotesi, traccia)
+    fonti = segui_riferimenti(fonti, caso, strumenti)
     # "ci sono file malevoli/sospetti?": i documenti sospetti non hanno quelle parole, la ricerca da sola non li trova
     if RE_CHIEDE_SOSPETTI.search(q):
         presenti = {(f['doc'], f['n']) for f in fonti}
