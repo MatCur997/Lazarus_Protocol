@@ -108,6 +108,13 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   font: 900 12px/1 var(--titoli); letter-spacing: 1.6px; text-transform: uppercase; text-decoration: none; white-space: nowrap;
   transform: rotate(-2deg); transition: transform .15s, background .15s, color .15s; }
 .accesso-segreto svg { width: 15px; height: 15px; stroke-width: 2; }
+/* pulsanti in alto a destra impilati: Accesso Segreto e, sotto, RAG view */
+.accessi { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.ragview-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 5px 12px; border: 1px solid var(--testata-bordo);
+  color: var(--testata-tenue); font: 700 11px/1 var(--titoli); letter-spacing: 1.6px; text-transform: uppercase; text-decoration: none; white-space: nowrap;
+  transition: color .15s, border-color .15s; }
+.ragview-btn svg { width: 14px; height: 14px; stroke-width: 2; }
+.ragview-btn:hover, .ragview-btn:focus-visible { color: var(--testata-testo); border-color: var(--testata-testo); outline: none; }
 .accesso-segreto:hover, .accesso-segreto:focus-visible { background: #c6352f; color: #fff; transform: rotate(0); outline: none; }
 .barra-stato { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 14px; width: fit-content; max-width: 100%;
   background: var(--sfondo) var(--carta-grana); border: 0; border-radius: 4px 4px 0 0; padding: 6px 54px 6px 8px; color: var(--testo);
@@ -123,7 +130,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .griglia { display: grid; grid-template-columns: 340px minmax(0, 1fr) 320px; gap: 20px; padding: 20px 24px; flex: 1; min-height: 0; }
 .pannello { background: var(--pannello); border: 1px solid var(--bordo); border-radius: var(--raggio); display: flex; flex-direction: column; min-height: 0; overflow: hidden;
   box-shadow: 0 1px 0 rgba(0, 0, 0, .03), 0 8px 24px -18px var(--ombra); }
-.titolo-pannello { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px 10px; }
+.titolo-pannello { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 16px 20px 10px; flex-wrap: wrap; }
+.titolo-pannello .btn-piccolo { margin-left: auto; }   /* va a capo invece di uscire dal pannello */
 .titolo-pannello h2 { margin: 0; font: 900 17px/1.1 var(--titoli); text-transform: uppercase; letter-spacing: .2px; }
 .titolo-pannello .conta { color: var(--debole); font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
 .lista { overflow-y: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 10px; min-height: 0; flex: 1; }
@@ -150,6 +158,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .etichetta { font-size: 10.5px; color: var(--tenue); background: transparent; border: 1px solid var(--bordo); border-radius: 2px; padding: 1px 6px; font-family: var(--mono); white-space: nowrap; letter-spacing: .3px; }
 .etichetta.bordeaux { background: var(--testo); border-color: var(--testo); color: var(--pannello); }
 .etichetta.errore { color: var(--errore); border-color: currentColor; }
+.etichetta.sospetto { color: var(--errore); border-color: currentColor; font-weight: 700; }   /* documento che dà ordini all'assistente */
+.chip.sospetto { color: var(--errore); border-color: var(--errore); }
+.voce.in-corso { opacity: .5; pointer-events: none; }   /* documento in rimozione */
 .etichetta.attenzione { color: var(--attenzione); border-color: currentColor; background: rgba(154, 106, 18, .06); }
 .btn-piccolo { display: inline-flex; align-items: center; gap: 5px; background: var(--testo); border: 1px solid var(--testo); color: var(--pannello); border-radius: 2px; padding: 3px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; }
 .btn-piccolo:hover { background: var(--bordeaux-2); }
@@ -256,6 +267,7 @@ details.dett-strumenti .passo { font-size: 11.5px; }
 .btn-tondo.invia:hover { background: var(--bordeaux-2); }
 .btn-tondo:disabled { opacity: .4; cursor: default; }
 .btn-tondo.piu svg { width: 22px; height: 22px; }
+.btn-tondo.svuota:hover { color: var(--errore); border-color: var(--errore); }
 textarea#domanda { flex: 1; resize: none; background: var(--sfondo); border: 1px solid var(--bordo); border-radius: 2px; padding: 10px 14px; outline: 0; max-height: 140px; min-height: 40px; line-height: 1.45; font-size: 12.5px; }
 textarea#domanda:focus { border-color: var(--testo); }
 textarea#domanda::placeholder, input::placeholder { color: var(--debole); }

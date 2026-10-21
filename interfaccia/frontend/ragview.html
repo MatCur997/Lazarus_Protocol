@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG view · Lazzaro</title>
+<script src="tema.js"></script>
+<link rel="stylesheet" href="app.css">
+<style>
+  /* RAG view: come il modello sceglie i documenti. Pertinenza (clustering) e percorso di una domanda fino al prompt. */
+  body { overflow-y: auto; }
+  .scheda .pagina { max-width: 1120px; }
+  .pagina h1 { margin: 0 0 4px; font: 900 28px/1.1 var(--titoli); text-transform: uppercase; }
+  .sotto-titolo { color: var(--tenue); font-size: 13px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .sezione { margin-top: 30px; }
+  .sezione > h2 { font: 900 15px/1.2 var(--titoli); text-transform: uppercase; letter-spacing: .6px; margin: 0 0 6px; }
+  .sezione > p.spiega { color: var(--tenue); font-size: 12.5px; margin: 0 0 12px; max-width: 820px; }
+  .riquadro-rv { background: var(--pannello); border: 1px solid var(--bordo); padding: 14px 16px; }
+  .mappa-3d { position: relative; background: var(--scheda); border: 1px solid var(--bordo); }
+  .mappa-3d canvas { width: 100%; height: 480px; display: block; cursor: grab; touch-action: none; }
+  .mappa-3d canvas.trascino { cursor: grabbing; }
+  .mappa-3d .suggerimento { position: absolute; pointer-events: none; background: var(--pannello); border: 1px solid var(--bordo);
+    padding: 6px 9px; font-size: 11.5px; max-width: 320px; box-shadow: 0 8px 20px -10px rgba(0, 0, 0, .5); display: none; }
+  .mappa-3d .comandi { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
+  .mappa-3d .aiuto { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: var(--debole); pointer-events: none; }
+  .legenda-rv { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--tenue); margin-top: 8px; }
+  .legenda-rv i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  table.rv { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.rv th { text-align: left; font: 400 10.5px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .8px; color: var(--debole);
+    border-bottom: 1px solid var(--bordo); padding: 6px 8px; }
+  table.rv td { border-bottom: 1px solid var(--bordo); padding: 5px 8px; vertical-align: top; }
+  table.rv td.num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+  table.rv tr.caso td { background: rgba(198, 53, 47, .07); }
+  table.rv .esempi { color: var(--tenue); }
+  .doc-id { font-family: var(--mono); cursor: pointer; text-decoration: underline dotted; }
+  .domanda-rv { display: flex; gap: 8px; flex-wrap: wrap; }
+  .domanda-rv input { flex: 1 1 320px; padding: 8px 10px; border: 1px solid var(--bordo); background: var(--pannello); color: var(--testo); font: inherit; }
+  .domanda-rv select { flex: 0 1 300px; padding: 8px; border: 1px solid var(--bordo); background: var(--pannello); color: var(--testo); font: inherit; }
+  .colonne { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .colonne h3, .riquadro-rv h3 { font: 700 12px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .8px; margin: 0 0 8px; }
+  .esito { font: 400 10.5px/1 var(--mono); padding: 2px 6px; border: 1px solid currentColor; white-space: nowrap; }
+  .esito.scelto { color: #2f7a4b; } .esito.non-pertinente { color: var(--debole); } .esito.usato-non-pertinente { color: var(--errore); } .esito.fuori-dai-primi { color: var(--debole); }
+  .passi-rv div { font-size: 12px; padding: 3px 0; border-bottom: 1px dashed var(--bordo); display: flex; gap: 10px; }
+  .passi-rv code { font-family: var(--mono); min-width: 170px; }
+  .passi-rv .ms { margin-left: auto; color: var(--debole); font-family: var(--mono); white-space: nowrap; }
+  .ipotesi { margin-top: 8px; font-size: 12px; color: var(--tenue); border-left: 3px solid var(--bordo); padding-left: 10px; }
+  details.prompt { margin-top: 10px; }
+  details.prompt pre { white-space: pre-wrap; font: 11.5px/1.5 var(--mono); background: var(--scheda); padding: 10px 12px; max-height: 420px; overflow: auto; margin: 6px 0 0; }
+  details.prompt summary { cursor: pointer; font-size: 12.5px; }
+  .verdetto { font: 900 13px/1 var(--titoli); text-transform: uppercase; letter-spacing: 1px; padding: 6px 10px; display: inline-block; }
+  .verdetto.caso { background: var(--testo); color: var(--pannello); } .verdetto.chat { border: 2px solid var(--testo); }
+  .attesa-rv { color: var(--debole); font-size: 12px; padding: 12px 0; }
+  .avviso { border: 1px solid var(--errore); color: var(--errore); padding: 10px 14px; }
+</style>
+</head>
+<body class="scheda">
+<header class="testata" style="padding-bottom:14px">
+  <div class="riga-alta">
+    <div class="marchio">
+      <div class="logo"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="9" cy="18" r="2.5"/><path d="M8 7l8 0M7 8l2 8M16.5 9l-6 7"/></svg></div>
+      <div>Lazzaro<small>RAG view · come il modello trova le fonti</small></div>
+    </div>
+    <div class="spazio"></div>
+    <button class="tema-btn" id="tema" title="Cambia tema: chiaro (carta) o scuro">
+      <span class="per-scuro"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Scuro</span>
+      <span class="per-chiaro"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Chiaro</span>
+    </button>
+  </div>
+</header>
+<div class="pagina">
+  <h1>RAG view</h1>
+  <div class="sotto-titolo">Il percorso dai documenti caricati al prompt: quali documenti contano per l'indagine e come vengono scelte le fonti di ogni risposta.</div>
+  <div class="chips" id="riepilogo"><span class="etichetta">carico…</span></div>
+
+  <section class="sezione">
+    <h2>1 · Pertinenza dei documenti (clustering)</h2>
+    <p class="spiega">Ogni documento diventa un vettore (media degli embedding dei suoi brani). Tolta la media dell'archivio, il k-means li
+      raggruppa per contenuto; i cluster più vicini alla descrizione del caso sono quelli <b>pertinenti</b>. Solo i loro brani
+      servono a rispondere sul caso; gli altri arrivano al modello solo se la domanda li riguarda, e non diventano mai indizi. Nella mappa 3D ogni punto è un documento:
+      l'asse rosso è la somiglianza al caso (verso la punta = più vicino), gli altri due le principali variazioni rimanenti.</p>
+    <div class="riquadro-rv">
+      <div class="mappa-3d">
+        <canvas id="mappa" role="img" aria-label="Mappa 3D dei documenti: trascina per ruotare"></canvas>
+        <div class="suggerimento" id="suggerimento"></div>
+        <div class="comandi"><button class="btn-piccolo grigio" id="ruota" type="button">Ferma rotazione</button>
+          <button class="btn-piccolo grigio" id="centra" type="button">Vista iniziale</button></div>
+        <div class="aiuto">trascina per ruotare · rotella per lo zoom · clic su un punto per aprire il documento</div>
+      </div>
+      <div class="legenda-rv" id="legenda"></div>
+    </div>
+    <div class="riquadro-rv" style="margin-top:12px">
+      <table class="rv" id="cluster"><tr><td class="vuoto">carico…</td></tr></table>
+    </div>
+  </section>
+
+  <section class="sezione">
+    <h2>2 · Il percorso di una domanda</h2>
+    <p class="spiega">Scrivi una domanda o scegline una dallo storico: si vedono la classificazione, le tre classifiche (parole chiave, significato,
+      HyDE), la fusione RRF e il prompt esatto che riceverebbe il modello. La risposta non viene generata e lo storico non cambia.</p>
+    <form class="domanda-rv" id="modulo">
+      <input id="domanda" placeholder="Es. Dove si trova il contenitore LUME?" autocomplete="off">
+      <select id="dallo-storico"><option value="">… oppure una domanda dello storico</option></select>
+      <button class="btn-piccolo" type="submit">Analizza</button>
+    </form>
+    <div id="percorso"></div>
+  </section>
+</div>
+
+<script src="comune.js"></script>
+<script>
+// $, esc, vaiA vengono da comune.js
+const api = (u) => fetch(u).then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.errore || r.statusText); return j; });
+const num = (x, d = 3) => (x == null ? '—' : Number(x).toFixed(d));
+const apriDoc = (id) => vaiA(`persona.html?doc=${encodeURIComponent(id)}`);
+document.addEventListener('click', (e) => { const d = e.target.closest('[data-doc]'); if (d) apriDoc(d.dataset.doc); });
+
+// ------------------------------------------------------------ 1. archivio
+async function archivio() {
+  const a = await api('/api/ragview/archivio');
+  const pert = a.documenti.filter((d) => d.pertinente).length;
+  $('#riepilogo').innerHTML = [
+    `${a.documenti.length} documenti`, `${a.brani} brani`, `embedding ${a.modello_embedding}${a.embedding ? '' : ' (non attivi)'}`,
+    a.K ? `k-means K=${a.K}` : 'nessun clustering', `${pert} pertinenti`, `top ${a.top_k} brani`,
+    a.hyde ? `HyDE sotto similarità ${a.hyde_soglia}` : 'HyDE spento'].map((t) => `<span class="etichetta">${esc(t)}</span>`).join('')
+    + `<span class="etichetta bordeaux" title="${esc(a.info.dettaglio)}">${esc(a.info.dettaglio)}</span>`;
+  disegnaMappa(a);
+  $('#cluster').innerHTML = a.cluster.length
+    ? `<tr><th>Cluster</th><th class="num">Documenti</th><th class="num">Vicinanza al caso</th><th>Pertinente</th><th>Esempi di titoli</th></tr>`
+      + a.cluster.map((c) => `<tr class="${c.pertinente ? 'caso' : ''}"><td class="num">#${c.id}</td><td class="num">${c.n}</td>
+        <td class="num">${num(c.vicinanza)}</td><td>${c.pertinente ? '<b>sì</b>' : 'no'}</td>
+        <td class="esempi">${esc(c.esempi.join(' · '))}${c.n > c.esempi.length ? ' …' : ''}</td></tr>`).join('')
+    : `<tr><td class="vuoto">Nessun clustering: ${esc(a.info.dettaglio)}. Con meno di 40 documenti sono tutti pertinenti.</td></tr>`;
+}
+
+// ---- mappa 3D: canvas e proiezione prospettica fatte a mano (nessuna libreria)
+const vista = { punti: [], yaw: -0.6, pitch: 0.35, zoom: 1, ruota: true, evidenziati: new Set(), sopra: null, proiettati: [] };
+const ROSSO = '#c6352f', GIALLO = '#e0a91f';
+const tonoCluster = (c) => `hsl(${(c * 47) % 360}, 14%, ${50 + (c % 4) * 6}%)`;   // cluster esclusi: toni neutri distinti
+
+function disegnaMappa(a) {
+  vista.caricata = true;
+  const conXYZ = a.documenti.filter((d) => d.xyz);
+  if (!conXYZ.length) {
+    vista.punti = [];
+    $('#legenda').innerHTML = '<span>Mappa non disponibile: serve il clustering (almeno 40 documenti, con numpy).</span>';
+    ridisegna();
+    return;
+  }
+  // ogni asse riportato tra -1 e 1 attorno al suo centro
+  const assi = [0, 1, 2].map((k) => {
+    const v = conXYZ.map((d) => d.xyz[k]);
+    const alto = Math.max(...v), basso = Math.min(...v);
+    return { centro: (alto + basso) / 2, ampiezza: (alto - basso) / 2 || 1 };
+  });
+  vista.punti = conXYZ.map((d) => ({ ...d, p: d.xyz.map((x, k) => (x - assi[k].centro) / assi[k].ampiezza) }));
+  $('#legenda').innerHTML = `<span><i style="background:${ROSSO}"></i>pertinente (cluster dell'indagine)</span>
+    <span><i style="background:${GIALLO}"></i>sospetto</span><span><i style="background:hsl(200,14%,56%)"></i>altri cluster (un tono per cluster)</span>
+    <span><i style="background:transparent;border:2px solid currentColor"></i>fonti dell'ultima domanda analizzata</span>`;
+  ridisegna();
+}
+
+function proietta(p, W, H) {
+  const [x, y, z] = p;
+  const cy = Math.cos(vista.yaw), sy = Math.sin(vista.yaw), cp = Math.cos(vista.pitch), sp = Math.sin(vista.pitch);
+  const x1 = x * cy - z * sy, z1 = x * sy + z * cy;            // rotazione attorno all'asse verticale
+  const y1 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;          // poi attorno all'asse orizzontale
+  const prospettiva = 3.2 / (3.2 + z2);
+  const scala = Math.min(W, H) * 0.36 * vista.zoom * prospettiva;
+  return { x: W / 2 + x1 * scala, y: H / 2 - y1 * scala, z: z2, k: prospettiva };
+}
+
+function ridisegna() {
+  const tela = $('#mappa');
+  const W = tela.clientWidth, H = tela.clientHeight, dpr = devicePixelRatio || 1;
+  if (tela.width !== Math.round(W * dpr) || tela.height !== Math.round(H * dpr)) { tela.width = Math.round(W * dpr); tela.height = Math.round(H * dpr); }
+  const g = tela.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  const testo = getComputedStyle(document.body).color;
+  if (!vista.punti.length) {
+    g.fillStyle = testo; g.font = '13px sans-serif'; g.textAlign = 'center';
+    g.fillText(vista.caricata ? 'Mappa non disponibile' : 'Carico la mappa…', W / 2, H / 2);
+    return;
+  }
+  const asse = (da, a, colore, etichetta) => {
+    const p0 = proietta(da, W, H), p1 = proietta(a, W, H);
+    g.strokeStyle = colore; g.lineWidth = 1.2; g.globalAlpha = 0.55;
+    g.beginPath(); g.moveTo(p0.x, p0.y); g.lineTo(p1.x, p1.y); g.stroke();
+    if (etichetta) { g.globalAlpha = 0.9; g.fillStyle = colore; g.font = '11px sans-serif'; g.textAlign = 'left'; g.fillText(etichetta, p1.x + 4, p1.y - 4); }
+    g.globalAlpha = 1;
+  };
+  asse([-1.15, 0, 0], [1.25, 0, 0], ROSSO, 'più vicino al caso');     // asse x = somiglianza al caso
+  asse([0, -1.15, 0], [0, 1.15, 0], testo, '');
+  asse([0, 0, -1.15], [0, 0, 1.15], testo, '');
+  // punti dal più lontano al più vicino (algoritmo del pittore); i pertinenti più grandi
+  vista.proiettati = vista.punti.map((d) => ({ d, ...proietta(d.p, W, H) })).sort((a, b) => b.z - a.z);
+  for (const q of vista.proiettati) {
+    const r = Math.max((q.d.pertinente ? 4.6 : 2.4) * q.k, 1.2);
+    g.globalAlpha = q.d.pertinente ? 1 : Math.min(0.9, 0.5 + 0.4 * (q.k - 0.7));
+    g.fillStyle = q.d.sospetto ? GIALLO : q.d.pertinente ? ROSSO : tonoCluster(q.d.cluster ?? 0);
+    g.beginPath(); g.arc(q.x, q.y, r, 0, 2 * Math.PI); g.fill();
+    if (vista.evidenziati.has(q.d.id) || vista.sopra === q.d) {
+      g.globalAlpha = 1; g.strokeStyle = testo; g.lineWidth = 1.6;
+      g.beginPath(); g.arc(q.x, q.y, r + 4, 0, 2 * Math.PI); g.stroke();
+    }
+  }
+  g.globalAlpha = 1;
+}
+
+function puntoVicino(x, y) {
+  let migliore = null, distanza = 9;
+  for (const q of vista.proiettati) {           // a parità vince l'ultimo disegnato, cioè il più vicino a chi guarda
+    const dd = Math.hypot(q.x - x, q.y - y);
+    if (dd <= distanza) { distanza = dd; migliore = q; }
+  }
+  return migliore;
+}
+
+function fermaRotazione() { vista.ruota = false; $('#ruota').textContent = 'Ruota'; }
+function anima() { if (!vista.ruota) return; vista.yaw += 0.004; ridisegna(); requestAnimationFrame(anima); }
+
+(function interazione() {
+  const tela = $('#mappa'), info = $('#suggerimento');
+  let trascina = null, mosso = false;
+  tela.addEventListener('pointerdown', (e) => { trascina = { x: e.clientX, y: e.clientY }; mosso = false; tela.setPointerCapture(e.pointerId); tela.classList.add('trascino'); });
+  tela.addEventListener('pointermove', (e) => {
+    const r = tela.getBoundingClientRect();
+    if (trascina) {
+      const dx = e.clientX - trascina.x, dy = e.clientY - trascina.y;
+      if (Math.abs(dx) + Math.abs(dy) > 2) { mosso = true; fermaRotazione(); }
+      vista.yaw += dx * 0.008;
+      vista.pitch = Math.max(-1.5, Math.min(1.5, vista.pitch + dy * 0.008));
+      trascina = { x: e.clientX, y: e.clientY };
+      info.style.display = 'none';
+      ridisegna();
+      return;
+    }
+    const q = puntoVicino(e.clientX - r.left, e.clientY - r.top);
+    vista.sopra = q ? q.d : null;
+    if (q) {
+      info.style.display = 'block';
+      info.style.left = Math.max(4, Math.min(q.x + 12, r.width - 330)) + 'px';
+      info.style.top = Math.min(q.y + 12, r.height - 60) + 'px';
+      info.innerHTML = `<b>${esc(q.d.id)}</b> · ${esc(q.d.titolo)}<br>cluster #${q.d.cluster}${q.d.giorno ? ` · giorno ${q.d.giorno}` : ''} · ${q.d.pertinente ? '<b>pertinente</b>' : 'non pertinente'}`
+        + ` · somiglianza al caso ${num(q.d.somiglianza)}${q.d.sospetto ? '<br>⚠ sospetto' : ''}`;
+    } else info.style.display = 'none';
+    if (!vista.ruota) ridisegna();
+  });
+  tela.addEventListener('pointerup', (e) => {
+    if (trascina && !mosso) {
+      const r = tela.getBoundingClientRect();
+      const q = puntoVicino(e.clientX - r.left, e.clientY - r.top);
+      if (q) apriDoc(q.d.id);
+    }
+    trascina = null; tela.classList.remove('trascino');
+  });
+  tela.addEventListener('pointerleave', () => { info.style.display = 'none'; vista.sopra = null; });
+  tela.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    vista.zoom = Math.max(0.5, Math.min(5, vista.zoom * (e.deltaY < 0 ? 1.1 : 0.9)));
+    ridisegna();
+  }, { passive: false });
+  $('#ruota').addEventListener('click', () => {
+    if (vista.ruota) fermaRotazione();
+    else { vista.ruota = true; $('#ruota').textContent = 'Ferma rotazione'; anima(); }
+  });
+  $('#centra').addEventListener('click', () => { Object.assign(vista, { yaw: -0.6, pitch: 0.35, zoom: 1 }); ridisegna(); });
+})();
+requestAnimationFrame(anima);
+
+// ------------------------------------------------------------ 2. una domanda
+const tabella = (righe, conEsito) => righe.length
+  ? `<table class="rv"><tr><th>#</th><th>Documento</th><th class="num">Punteggio</th>${conEsito ? '<th>Esito</th>' : ''}</tr>${righe.map((r, k) => `
+      <tr class="${r.pertinente ? 'caso' : ''}"><td class="num">${k + 1}</td>
+      <td><span class="doc-id" data-doc="${esc(r.doc)}">${esc(r.doc)}</span>${r.sospetto ? ' ⚠' : ''}<div class="esempi">${esc(r.titolo)}</div></td>
+      <td class="num">${num(r.punteggio, 4)}</td>${conEsito ? `<td><span class="esito ${r.esito.replace(/[ ,]+/g, '-')}">${esc(r.esito)}</span></td>` : ''}</tr>`).join('')}</table>`
+  : '<div class="vuoto">Non usata per questa domanda.</div>';
+
+async function analizza(domanda) {
+  domanda = domanda.trim();
+  if (!domanda) return;
+  $('#percorso').innerHTML = '<div class="attesa-rv">Analizzo: classificazione, ricerca e prompt (senza generare la risposta)…</div>';
+  try {
+    const r = await api(`/api/ragview/domanda?q=${encodeURIComponent(domanda)}`);
+    const t = r.traccia || {};
+    const hyde = r.strumenti.find((s) => s.nome === 'cerca_hyde' && s.testo);
+    vista.evidenziati = new Set(r.fonti.map((f) => f.doc)); ridisegna();
+    $('#percorso').innerHTML = `
+      <div class="riquadro-rv" style="margin-top:12px">
+        <span class="verdetto ${r.conversazione ? 'chat' : 'caso'}">${r.conversazione ? 'Chat: nessun documento letto' : 'Domanda sul caso'}</span>
+        <span class="sotto-titolo" style="margin-left:10px">${esc(r.motivo)}</span>
+        <div class="passi-rv" style="margin-top:10px">${r.strumenti.map((s) => `<div><code>${esc(s.nome)}</code><span>${esc(s.dettaglio)}</span><span class="ms">${s.ms} ms</span></div>`).join('')}</div>
+        ${hyde ? `<div class="ipotesi"><b>Risposta ipotetica (HyDE)</b>, usata solo per cercare: ${esc(hyde.testo)}</div>` : ''}
+        ${t.tutto_archivio ? '<div class="ipotesi">Pochi documenti: il modello li riceve tutti, senza ricerca.</div>' : ''}
+        ${t.tutti_pertinenti && !t.tutto_archivio ? `<div class="ipotesi">I ${t.pertinenti} brani pertinenti stanno nel prompt: il modello li riceve tutti.</div>` : ''}
+      </div>
+      ${r.conversazione ? '' : `
+      <div class="colonne" style="margin-top:12px">
+        <div class="riquadro-rv"><h3>Parole chiave (BM25)</h3>${tabella(t.bm25 || [])}</div>
+        <div class="riquadro-rv"><h3>Significato (embedding)</h3>${tabella(t.semantica || [])}</div>
+        <div class="riquadro-rv"><h3>HyDE</h3>${tabella(t.hyde || [])}</div>
+      </div>
+      <div class="riquadro-rv" style="margin-top:12px"><h3>Fusione RRF su tutto l'archivio (primi 25) e scelta tra i pertinenti</h3>${tabella(t.rrf || [], true)}</div>`}
+      <div class="riquadro-rv" style="margin-top:12px">
+        <h3>Fonti date al modello (${r.fonti.length})</h3>
+        <div class="chips">${r.fonti.map((f) => `<span class="etichetta ${f.pertinente ? '' : 'errore'}" data-doc="${esc(f.doc)}" style="cursor:pointer"
+          title="${f.caratteri} caratteri${f.pertinente ? '' : ' · non pertinente: usato perché la domanda lo riguarda, mai come prova'}">${esc(f.doc)}${f.n ? ` #${f.n}` : ''}${f.giorno ? ` · g${f.giorno}` : ''}${f.pertinente ? '' : ' · non pertinente'}${f.sospetto ? ' ⚠' : ''}</span>`).join('') || '<span class="sotto-titolo">nessuna</span>'}</div>
+        <details class="prompt"><summary>Prompt esatto inviato al modello · circa ${r.token_stimati} token · preparato in ${r.ms} ms</summary>
+          ${r.messaggi.map((m) => `<div class="sotto-titolo" style="margin-top:8px">${esc(m.role)}</div><pre>${esc(m.content)}</pre>`).join('')}
+        </details>
+      </div>`;
+  } catch (err) {
+    $('#percorso').innerHTML = `<div class="avviso" style="margin-top:12px">${esc(err.message)}</div>`;
+  }
+}
+
+$('#modulo').addEventListener('submit', (e) => { e.preventDefault(); analizza($('#domanda').value); });
+$('#dallo-storico').addEventListener('change', (e) => { if (e.target.value) { $('#domanda').value = e.target.value; analizza(e.target.value); } });
+
+archivio().catch((err) => { $('#riepilogo').innerHTML = `<span class="etichetta errore">${esc(err.message)}</span>`; });
+api('/api/storico').then((voci) => {
+  const domande = [...new Set(voci.filter((v) => !v.errore && !v.meta).map((v) => v.domanda))].reverse().slice(0, 40);
+  $('#dallo-storico').insertAdjacentHTML('beforeend', domande.map((d) => `<option>${esc(d)}</option>`).join(''));
+}).catch(() => {});
+let attesaRidisegno;
+addEventListener('resize', () => { clearTimeout(attesaRidisegno); attesaRidisegno = setTimeout(ridisegna, 150); });
+</script>
+</body>
+</html>

@@ -20,6 +20,7 @@ Le pagine servite sono in interfaccia/frontend/. Mappa completa: ARCHITETTURA.md
 import argparse
 import io
 import json
+import re
 import socket
 import sys
 import threading
@@ -54,6 +55,13 @@ TURNO = {'n': 0}          # numero dell'ultima domanda: serve a interrompere est
 FILI_PER_VOCE = 2         # bacheca: collegamenti più forti tenuti per ogni indizio
 FILO_MINIMO = 1.0         # bacheca: punteggio minimo perché due indizi siano collegati
 BLOCCO_TURNO = threading.Lock()
+
+def del_caso(fonte):
+    """Una citazione è una prova solo se è verificata e viene da un documento del caso: le voci di consultazione
+    (enciclopedia, spesso messe per sviare) servono a rispondere ma non diventano indizi, eventi o luoghi."""
+    d = INDICE.documenti.get(fonte.get('doc') or '')
+    return bool(fonte.get('verificato')) and not (d and d.get('consultazione'))
+
 
 TIPI = {'.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
         '.js': 'application/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.ico': 'image/x-icon'}
@@ -95,6 +103,8 @@ class Gestore(BaseHTTPRequestHandler):
             '/api/elementi': self.api_elementi,
             '/api/bacheca': self.api_bacheca,
             '/api/elemento': lambda: self.api_elemento(q.get('tipo', ''), q.get('chiave', '')),
+            '/api/ragview/archivio': self.api_ragview_archivio,
+            '/api/ragview/domanda': lambda: self.api_ragview_domanda(q.get('q', '')),
         }
         if url.path in rotte:
             try:
@@ -119,7 +129,7 @@ class Gestore(BaseHTTPRequestHandler):
         self.json({'modello': STATO['modello'], 'modelli': generativi, 'ollama': ok, 'demo': STATO['demo'],
                    'embedding': INDICE.embedding_ok, 'modello_embedding': cfg.MODELLO_EMBEDDING,
                    'documenti': len(INDICE.documenti), 'brani': len(INDICE.brani), 'top_k': TOP_K,
-                   'avviso': cfg.AVVISO_LAZARUS})
+                   'avviso': cfg.AVVISO_LAZARUS, 'pertinenza': INDICE.info_pertinenza})
 
     def api_strumenti(self):
         uso = defaultdict(list)
@@ -140,7 +150,10 @@ class Gestore(BaseHTTPRequestHandler):
     def api_documenti(self):
         with INDICE.lock:
             self.json([{'id': d['id'], 'nome': d['nome'], 'titolo': d.get('titolo', ''), 'origine': d['origine'],
-                        'id_interno': d.get('id_interno'), 'caratteri': len(d['testo'])} for d in INDICE.documenti.values()])
+                        'id_interno': d.get('id_interno'), 'consultazione': d.get('consultazione', False),
+                        'pertinenza': d.get('pertinenza'), 'giorno': d.get('giorno'),
+                        'sospetto': d.get('sospetto'), 'sospetto_manuale': d.get('sospetto_manuale'),
+                        'caratteri': len(d['testo'])} for d in INDICE.documenti.values()])
 
     def api_documento(self, doc_id):
         d = INDICE.documenti.get(doc_id)
@@ -149,12 +162,13 @@ class Gestore(BaseHTTPRequestHandler):
         self.json({k: d[k] for k in ('id', 'nome', 'titolo', 'origine', 'testo')})
 
     @staticmethod
-    def passaggi(corrisponde, solo_doc=None):
-        """Frasi dei documenti per cui corrisponde(chiave_frase) è vero, con la frase prima e dopo come contesto."""
+    def passaggi(corrisponde, solo_doc=None, solo_caso=False):
+        """Frasi dei documenti per cui corrisponde(chiave_frase) è vero, con la frase prima e dopo come contesto.
+        solo_caso: salta i documenti di consultazione (non sono prove)."""
         documenti = []
         with INDICE.lock:
             for d in INDICE.documenti.values():
-                if solo_doc and d['id'] not in solo_doc:
+                if (solo_doc and d['id'] not in solo_doc) or (solo_caso and d.get('consultazione')):
                     continue
                 elenco = frasi(d['testo'])
                 brani = [{'frase': f, 'contesto': ' '.join(elenco[max(0, i - 1):i + 2])}
@@ -176,11 +190,12 @@ class Gestore(BaseHTTPRequestHandler):
             elenco = []
             for r in STORICO.raccogli(tipo).values():
                 voce = {k: r[k] for k in ('chiave', 'nome', 'citazioni', 'ultima')}
-                voce['verificato'] = any(f['verificato'] for f in r['fonti'])
-                voce['doc'] = next((f['doc'] for f in r['fonti'] if f['verificato']), None)
-                voce['estratto'] = next((f['citazione'] for f in r['fonti'] if f['verificato']), '')
+                prove = [f for f in r['fonti'] if del_caso(f)]
+                voce['verificato'] = bool(prove)
+                voce['doc'] = prove[0]['doc'] if prove else None
+                voce['estratto'] = prove[0]['citazione'] if prove else ''
                 if tipo == 'luoghi':
-                    voce['documenti'] = len(self.passaggi(lambda k, c=r['chiave']: c in k))
+                    voce['documenti'] = len(self.passaggi(lambda k, c=r['chiave']: c in k, solo_caso=True))
                     voce['verificato'] = voce['documenti'] > 0
                 if not voce['verificato']:      # senza riscontro nei documenti non entra nella colonna
                     continue
@@ -188,6 +203,61 @@ class Gestore(BaseHTTPRequestHandler):
             elenco.sort(key=lambda x: (-x['citazioni'], x['ultima']), reverse=False)
             elenchi[tipo] = elenco
         self.json(elenchi)
+
+    # ---------------------------------------------------------------- RAG view
+    def api_ragview_archivio(self):
+        """Archivio visto dal motore: documenti con cluster, pertinenza e coordinate 2D; riepilogo dei cluster."""
+        with INDICE.lock:
+            mappa = INDICE.mappa_pertinenza or {}
+            etichette, coordinate = mappa.get('etichette', {}), mappa.get('coordinate') or {}
+            documenti = [{'id': d['id'], 'titolo': d.get('titolo', ''), 'pertinente': not d.get('consultazione'),
+                          'sospetto': bool(d.get('sospetto')), 'somiglianza': d.get('pertinenza'), 'giorno': d.get('giorno'),
+                          'cluster': etichette.get(d['id']), 'xyz': coordinate.get(d['id'])} for d in INDICE.documenti.values()]
+            n_brani = len(INDICE.brani)
+        cluster = []
+        for c in mappa.get('cluster', []):
+            membri = [d for d in documenti if d['cluster'] == c['id']]
+            cluster.append({**c, 'esempi': [d['titolo'] for d in membri[:6]]})
+        cluster.sort(key=lambda c: -c['vicinanza'])
+        self.json({'info': INDICE.info_pertinenza, 'K': mappa.get('K'), 'cluster': cluster, 'documenti': documenti,
+                   'brani': n_brani, 'embedding': INDICE.embedding_ok, 'modello_embedding': cfg.MODELLO_EMBEDDING,
+                   'top_k': TOP_K, 'hyde': cfg.HYDE, 'hyde_soglia': cfg.HYDE_SOGLIA})
+
+    def api_ragview_domanda(self, domanda):
+        """Il percorso di una domanda fino al prompt, SENZA generare la risposta e senza scrivere nello storico."""
+        domanda = domanda.strip()
+        if not domanda:
+            raise ValueError('Domanda vuota')
+        t0 = time.perf_counter()
+        strumenti, traccia = [], {}
+        modello = STATO['modello']
+        if motore.chiede_dei_documenti(domanda):
+            conversazione, motivo = False, 'domanda sui documenti (sospetti o estranei) · regole'
+        else:
+            conversazione = motore.controlla_pertinenza(INDICE, modello, domanda, strumenti, STATO['demo'])
+            motivo = strumenti[-1]['dettaglio'] if strumenti else ''
+        fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, [], strumenti, modello, STATO['demo'], traccia)
+        messaggi = motore.costruisci_messaggi(domanda, fonti, [], conversazione,
+                                              nota_archivio='' if conversazione else motore.note_per_prompt(INDICE, domanda))
+        caratteri = sum(len(m['content']) for m in messaggi)
+        self.json({'domanda': domanda, 'conversazione': conversazione, 'motivo': motivo, 'strumenti': strumenti,
+                   'traccia': traccia, 'ms': ms(t0),
+                   'fonti': [{'doc': f['doc'], 'n': f['n'], 'solo_titolo': f.get('solo_titolo'), 'sospetto': bool(f.get('sospetto')),
+                              'pertinente': not f.get('consultazione'), 'giorno': f.get('giorno'), 'caratteri': len(f['testo'])} for f in fonti],
+                   'messaggi': messaggi, 'token_stimati': caratteri // 3})
+
+    def riepilogo_verificato(self, massimo=14):
+        """Indizi, ipotesi, eventi e persone confermati dai documenti del caso, per i riassunti in chat."""
+        righe = []
+        for tipo in ('eventi', 'indizi'):
+            for r in sorted(STORICO.raccogli(tipo).values(), key=lambda r: -r['citazioni']):
+                prove = [f for f in r['fonti'] if del_caso(f)]
+                if prove:
+                    genere = r.get('genere') or ('evento' if tipo == 'eventi' else 'indizio')
+                    nome = re.sub(r'\s*\((indizio|ipotesi)\)$', '', r['nome'])
+                    righe.append(f"- {genere.capitalize()}: {nome} — {r.get('descrizione') or prove[0]['citazione']} [{prove[0]['doc']}]")
+        persone = [p['nome'] for p in self.elenco_persone()]
+        return '\n'.join(righe[:massimo] + ([f"- Persone: {', '.join(persone)}"] if persone else []))
 
     def api_bacheca(self):
         """Bacheca dell'investigatore. Nodi: indizi, ipotesi ed eventi verificati, e le persone trovate (con volto).
@@ -199,7 +269,7 @@ class Gestore(BaseHTTPRequestHandler):
         nodi, testi = [], {}            # testi: id del nodo -> testo (chiave) in cui cercare i luoghi
         for tipo in ('indizi', 'eventi'):
             for r in STORICO.raccogli(tipo).values():
-                fonti = [f for f in r['fonti'] if f['verificato']]
+                fonti = [f for f in r['fonti'] if del_caso(f)]
                 if not fonti:
                     continue
                 genere = r.get('genere') or ('evento' if tipo == 'eventi' else 'ipotesi' if r['nome'].endswith('(ipotesi)') else 'indizio')
@@ -260,7 +330,7 @@ class Gestore(BaseHTTPRequestHandler):
         # luoghi: solo se compaiono davvero nei documenti (come nella colonna destra); un filo verso ogni
         # indizio, ipotesi, evento o persona il cui testo li nomina
         for r in STORICO.raccogli('luoghi').values():
-            documenti = self.passaggi(lambda k, c=r['chiave']: c in k)
+            documenti = self.passaggi(lambda k, c=r['chiave']: c in k, solo_caso=True)
             if not documenti:
                 continue
             id_l = f"luoghi:{r['chiave']}"
@@ -341,6 +411,11 @@ class Gestore(BaseHTTPRequestHandler):
                 return self.api_carica()
             if url.path == '/api/reindicizza':
                 return self.api_reindicizza()
+            if url.path == '/api/caricati/svuota':
+                return self.api_svuota_caricati()
+            if url.path == '/api/documento/sospetto':      # {id, sospetto: true/false/null} null = automatico
+                corpo = self.corpo_json()
+                return self.json({'sospetto': INDICE.imposta_sospetto(corpo.get('id', ''), corpo.get('sospetto'))})
             if url.path == '/api/rimuovi':
                 return self.api_rimuovi(self.corpo_json())
             if url.path == '/api/storico/elimina':
@@ -423,18 +498,49 @@ class Gestore(BaseHTTPRequestHandler):
         if not d or d['origine'] != 'caricato':
             raise ValueError('Si possono rimuovere solo i file caricati con +')
         percorso = (PROGETTO / d['percorso']).resolve()
-        if percorso.is_relative_to(CARTELLA_CARICATI.resolve()):
+        base = CARTELLA_CARICATI.resolve()
+        if percorso.is_relative_to(base):
             percorso.unlink(missing_ok=True)
+            cartella = percorso.parent                  # via anche le cartelle rimaste vuote (non caricati/ stessa)
+            while cartella != base and cartella.is_relative_to(base) and cartella.exists() and not any(cartella.iterdir()):
+                cartella.rmdir()
+                cartella = cartella.parent
         INDICE.ricarica()
         INDICE.calcola_embedding()
         self.json({'documenti': len(INDICE.documenti)})
+
+    def api_svuota_caricati(self):
+        """Toglie tutti i file aggiunti con + o con la cartella. Se all'avvio si è indicata una cartella con --dati
+        e si trova dentro caricati/, quella resta."""
+        t = time.perf_counter()
+        base = CARTELLA_CARICATI.resolve()
+        dati = Path(cfg.CARTELLA_DATI).resolve() if cfg.CARTELLA_DATI else None
+        tolti = 0
+        if base.exists():
+            for p in sorted(base.rglob('*'), key=lambda p: len(p.parts), reverse=True):   # prima i file, poi le cartelle
+                if dati and (p == dati or p.is_relative_to(dati) or dati.is_relative_to(p)):
+                    continue                     # la cartella dati e le cartelle che la contengono restano
+                if p.is_file() or p.is_symlink():
+                    p.unlink()
+                    tolti += 1
+                elif p.is_dir() and not any(p.iterdir()):
+                    p.rmdir()
+        INDICE.ricarica()
+        INDICE.calcola_embedding()
+        EVENTI_CARICAMENTO.append({'nome': 'carica_file', 'ms': ms(t), 'dettaglio': f'svuotati i caricati: {tolti} file tolti'})
+        self.json({'tolti': tolti, 'documenti': len(INDICE.documenti), 'ms': ms(t)})
 
     def api_chiedi(self, corpo):
         domanda = (corpo.get('domanda') or '').strip()
         if not domanda:
             raise ValueError('Domanda vuota')
         modello = corpo.get('modello') or STATO['modello']
-        precedenti = [v for v in STORICO.voci if not v.get('errore')][-2:]
+        precedenti = [v for v in STORICO.voci if not v.get('errore') and not v.get('meta')][-2:]
+        # cronologia = gli scambi visibili in chat (la pagina manda i loro id); senza, le ultime domande dello storico
+        per_id = {v['id']: v for v in STORICO.voci}
+        vista = corpo.get('vista')
+        cronologia = [per_id[i] for i in vista if i in per_id] if isinstance(vista, list) else STORICO.voci[-6:]
+        cronologia = [v for v in cronologia if not v.get('errore')]
         with BLOCCO_TURNO:          # una nuova domanda interrompe l'estrazione degli elementi in corso
             TURNO['n'] += 1
             mio_turno = TURNO['n']
@@ -450,19 +556,36 @@ class Gestore(BaseHTTPRequestHandler):
 
         t0 = time.perf_counter()
         strumenti = []
-        conversazione = motore.controlla_pertinenza(INDICE, modello, domanda, strumenti, STATO['demo'])
+        diretta = motore.domanda_sulla_chat(domanda, cronologia)   # "cosa ti ho appena chiesto?": niente modello
+        riassunto = False
+        if diretta:
+            conversazione = True
+            strumenti.append({'nome': 'rispondi_dalla_cronologia', 'ms': ms(t0),
+                              'dettaglio': f'domanda sulla chat ({diretta[1] if isinstance(diretta[1], str) else str(diretta[1]) + " indietro"}): '
+                                           f'risposta presa da {len(cronologia)} scambi visibili'})
+        elif motore.chiede_dei_documenti(domanda):    # file sospetti o estranei: sempre nei documenti
+            conversazione = False
+            strumenti.append({'nome': 'controlla_pertinenza', 'ms': ms(t0),
+                              'dettaglio': 'domanda sui documenti (sospetti o estranei) · regole'})
+        else:
+            conversazione = motore.controlla_pertinenza(INDICE, modello, domanda, strumenti, STATO['demo'])
+            riassunto = conversazione and bool(motore.RE_RIASSUNTO.search(motore._norma(domanda)))
         fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, precedenti, strumenti, modello, STATO['demo'])
         ricerca_ms = ms(t0)
         for s in strumenti:
             invia({'tipo': 'strumento', **s})
         invia({'tipo': 'fonti', 'fonti': fonti})
 
-        messaggi = motore.costruisci_messaggi(domanda, fonti, precedenti, conversazione)
+        messaggi = motore.costruisci_messaggi(domanda, fonti, precedenti, conversazione,
+                                              cronologia=[v for v in cronologia if not v.get('meta')],
+                                              elementi_verificati=self.riepilogo_verificato() if riassunto else '',
+                                              nota_archivio='' if conversazione else motore.note_per_prompt(INDICE, domanda))
 
         risposta, prima_parola, stat, errore = '', None, {}, None
         t_gen = time.perf_counter()
         try:
-            for tipo, valore in motore.genera(modello, messaggi, STATO['demo'], conversazione):
+            for tipo, valore in motore.genera(modello, messaggi, STATO['demo'], conversazione,
+                                              testo_fisso=diretta[0] if diretta else None, lunga=riassunto):
                 if tipo == 'token':
                     if prima_parola is None:
                         prima_parola = ms(t0)
@@ -482,7 +605,8 @@ class Gestore(BaseHTTPRequestHandler):
             errore = f'Errore del modello: {e}'
         gen_ms = ms(t_gen)
         strumenti.append({'nome': 'genera_risposta', 'ms': gen_ms,
-                          'dettaglio': f'{modello}: {stat.get("token", 0)} token' if not errore else errore})
+                          'dettaglio': errore or ('dalla cronologia, senza modello' if diretta
+                                                  else f'{modello}: {stat.get("token", 0)} token')})
 
         t = time.perf_counter()
         persone = INDICE.persone_in(risposta) if risposta else []
@@ -499,6 +623,8 @@ class Gestore(BaseHTTPRequestHandler):
                       'token': stat.get('token'), 'token_prompt': stat.get('prompt_token'), 'tok_s': tok_s},
             'strumenti': strumenti, 'persone': persone, 'errore': errore,
         }
+        if diretta:
+            voce['meta'] = diretta[1]    # risposta sulla chat: non conta come domanda nella cronologia
         STORICO.aggiungi(voce)
         try:
             invia({'tipo': 'fine', 'voce': voce})
@@ -510,9 +636,11 @@ class Gestore(BaseHTTPRequestHandler):
         # ---- dopo la risposta: luoghi, indizi, eventi (fuori dal tempo misurato)
         t = time.perf_counter()
         nella_risposta = chiave_id(risposta)
-        citate = [f for f in fonti if chiave_id(f['doc']) in nella_risposta
-                  or (f.get('id_interno') and chiave_id(f['id_interno']) in nella_risposta)] or fonti[:3]
-        indizi, eventi = estrai_voci_nominate(risposta, fonti)   # nomi scritti dal modello, verificati nei documenti
+        # solo i documenti del caso possono confermare luoghi, indizi ed eventi: la consultazione non è una prova
+        fonti_caso = [f for f in fonti if not f.get('consultazione')]
+        citate = [f for f in fonti_caso if chiave_id(f['doc']) in nella_risposta
+                  or (f.get('id_interno') and chiave_id(f['id_interno']) in nella_risposta)] or fonti_caso[:3]
+        indizi, eventi = estrai_voci_nominate(risposta, fonti_caso)   # nomi scritti dal modello, verificati nei documenti
         luoghi, origine = [], 'regole'
         if ESTRAZIONE_CON_MODELLO and not STATO['demo']:
             try:
@@ -552,25 +680,25 @@ def main():
     ap.add_argument('--embedding', default=cfg.MODELLO_EMBEDDING, help='modello Ollama per la ricerca semantica')
     ap.add_argument('--porta', type=int, default=PORTA)
     ap.add_argument('--apri', action='store_true', help='apre il browser quando il server è pronto')
-    ap.add_argument('--dati', help='cartella con i documenti (default: quella di app_lazarus, se trovata)')
+    ap.add_argument('--dati', help='cartella di documenti da leggere a ogni avvio (di solito nessuna: si caricano con + o con la cartella)')
     args = ap.parse_args()
     STATO.update(modello=args.modello, demo=args.demo)
     cfg.MODELLO_EMBEDDING = args.embedding
-    dati = args.dati or (cfg.LAZARUS and cfg.LAZARUS.trova_dati(None))
-    if not dati and cfg.LAZARUS:   # cartella di squadra scaricata accanto al progetto
-        dati = next((p.parent for p in cfg.LAZARUS.QUI.parent.rglob('Squadra_4/dati/*.txt')), None)
-    if dati:
-        cfg.CARTELLA_DATI = Path(dati).resolve()
-        cfg.DIARIO_NOTEBOOK = cfg.CARTELLA_DATI.parent / 'diario_chat.jsonl'
-    print(f'Cartella documenti: {cfg.CARTELLA_DATI}')
-    cfg.CARTELLA_DATI.mkdir(parents=True, exist_ok=True)     # qui vanno i documenti (o si caricano con +)
+    # Nessun documento caricato in automatico: si caricano a mano a ogni sessione (pulsanti + e cartella).
+    # Solo con --dati una cartella viene letta a ogni avvio.
+    if args.dati:
+        cfg.CARTELLA_DATI = Path(args.dati).resolve()
+        print(f'Cartella documenti letta a ogni avvio: {cfg.CARTELLA_DATI}')
+    else:
+        print('Nessun documento caricato in automatico: aggiungili con + o con il pulsante cartella.')
 
     CARTELLA_REGISTRO.mkdir(exist_ok=True)
     INDICE = Indice(embedding_attivo=not args.demo)
     INDICE.ricarica()
     STORICO = Storico(demo=args.demo, nome_doc=lambda d: INDICE.documenti.get(d, {}).get('nome', d))
     VOLTI = Volti()
-    print(f'Documenti: {len(INDICE.documenti)}  brani: {len(INDICE.brani)}  persone nei documenti: {len(INDICE.persone)}')
+    print(f'Documenti: {len(INDICE.documenti)}  brani: {len(INDICE.brani)}  '
+          '(documenti pertinenti e persone si calcolano dopo gli embedding: vedi la riga "Pertinenza")')
     if not args.demo:
         threading.Thread(target=INDICE.calcola_embedding, daemon=True).start()
         threading.Thread(target=precarica, args=(args.modello,), daemon=True).start()

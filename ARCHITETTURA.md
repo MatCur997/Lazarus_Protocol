@@ -14,7 +14,7 @@ solo la libreria standard (più `requests`) nel backend.
  └──────────────────────┘  la chat     │ app_lazarus/lazarus.py  istruzioni,  │
                                        │   pertinenza, modello                │
                                        └──────────────────────────────────────┘
-                                         dati: interfaccia/registro/, lazzaro/dati/
+                                         dati: interfaccia/registro/, interfaccia/caricati/
 ```
 
 ## Cartelle
@@ -25,8 +25,8 @@ solo la libreria standard (più `requests`) nel backend.
 | `interfaccia/backend/` | Backend | Server HTTP e logica dell'interfaccia (Python). |
 | `interfaccia/frontend/` | Frontend | Pagine HTML, stile CSS, script JavaScript del browser. |
 | `interfaccia/registro/` | Dati | `storico.jsonl` (domande e risposte), `elementi.jsonl` (indizi, eventi, luoghi trovati), cache degli embedding, esclusioni. |
-| `interfaccia/caricati/` | Dati | File aggiunti con il pulsante **+**. |
-| `lazzaro/dati/` | Dati | Documenti della squadra (`G1-01.txt` …). `lazzaro/diario_chat.jsonl` è il registro della squadra: ogni domanda e risposta, mai cancellato dall'interfaccia. |
+| `interfaccia/caricati/` | Dati | Documenti caricati a mano con **+** o con il pulsante cartella. Nessun documento è caricato in automatico all'avvio (solo con `--dati <cartella>`). |
+| `lazzaro/` | Dati | `diario_chat.jsonl`: il registro della squadra, ogni domanda e risposta, mai cancellato dall'interfaccia e mai letto come documento. |
 | `avvia_interfaccia.bat` | Avvio | Sceglie il modello e avvia `interfaccia/backend/server.py`. |
 
 ## Backend: file per file
@@ -83,10 +83,47 @@ solo la libreria standard (più `requests`) nel backend.
 - **Navigazione**: le schede si aprono nella stessa finestra (`vaiA` in `comune.js`, `apri` in `app.js`); le frecce in alto
   a sinistra (`frecceNavigazione`) usano la cronologia. Le risposte visibili in chat si ricordano in `sessionStorage`
   e si ridisegnano tornando indietro (`ripristinaVista`). Mentre il modello scrive, le schede si aprono in una nuova scheda.
+- **Memoria della chat**: le risposte sul caso non hanno memoria. "Cosa ti ho appena chiesto?", "e prima ancora?",
+  "le ultime N domande" si rispondono dalla cronologia senza modello (`domanda_sulla_chat` in `motore.py`); le altre
+  domande di chat ricevono gli scambi visibili numerati, e i riassunti anche gli elementi verificati
+  (`riepilogo_verificato` in `server.py`). La cronologia è quella visibile in chat (`vista` mandata da `app.js`).
+- **Documenti sospetti**: un documento con almeno due segnali di ordini all'assistente ("istruzione per l'assistente",
+  "ignora G2-01", "rispondi che…", "non citare le fonti") ha il metadato `sospetto` con il motivo (`motivo_sospetto` in
+  `indice.py`, ricalcolato a ogni caricamento; correzioni a mano in `registro/sospetti.json`, pulsanti nella scheda
+  Documenti). Il modello lo riceve segnalato, non lo esegue ma lo descrive se pertinente; le domande su file
+  malevoli/sospetti lo ricevono sempre (`cerca_fonti`). Un documento sospetto conferma solo voci sul tentativo di
+  manipolazione, mai il suo contenuto (`riscontro` in `testo.py`). Per domande su file estranei o sospetti il modello
+  riceve anche il riepilogo dell'archivio (`nota_archivio`); per "tutti i file" riceve tutti i documenti del caso.
+- **Quanti documenti vede il modello**: se i documenti pertinenti stanno in `SOGLIA_CARATTERI` (12000) e `SOGLIA_BRANI`
+  (40) li riceve tutti, altrimenti i `TOP_K` (10) brani migliori; mai più di `MAX_BRANI_PER_DOC` (2) brani per documento
+  (`limita_per_documento` in `indice.py`). Contesto del modello `NUM_CTX` = 8192 in `lazarus.py`: fisso, così Ollama
+  non ricarica il modello quando il prompt cresce (prima parola ~3 s con ~4500 token di prompt).
+- **Tempo dell'indagine**: ogni documento ha il metadato `giorno` (dal nome delle cartelle `…giorno_N…`, altrimenti
+  "giorno operativo NN" nel testo o l'ID `G2-…`; `giorno_di` in `indice.py`). Le fonti arrivano al modello in ordine di
+  giorno e con "(giorno N)"; il prompt contiene la CRONOLOGIA DELL'INDAGINE (`nota_giorni` in `motore.py`); le domande
+  su uno o più giorni ("giorno 2", "dal primo al terzo") ricevono i documenti di quei giorni (`giorni_chiesti`).
+- **Velocità di caricamento e rimozione**: l'elenco delle persone si calcola dopo il clustering e solo sui pertinenti
+  (prima si scansionavano anche le 1000 voci estranee: ~17 s a ogni modifica, ora ~4 s in tutto).
+- **RAG view** (`frontend/ragview.html`, pulsante sotto "Accesso Segreto"): mappa dei documenti (x = somiglianza al caso,
+  y e z = le due variazioni principali rimanenti; mappa 3D ruotabile, `_mappa_3d` in `pertinenza.py`), tabella dei cluster, e il percorso di una domanda:
+  classificazione, classifiche BM25 / embedding / HyDE, fusione RRF con l'esito di ogni brano, fonti e prompt esatto.
+  API: `GET /api/ragview/archivio`, `GET /api/ragview/domanda?q=` (non genera la risposta e non scrive nello storico;
+  le classifiche arrivano da `Indice.cerca(..., traccia=)`).
+- **Pertinenza (clustering)**: quali documenti riguardano l'indagine lo decide il contenuto, non l'origine del file
+  (`pertinenza.py`, chiamato da `Indice.calcola_pertinenza` dopo gli embedding). Vettore medio per documento, centratura
+  sulla media dell'archivio, k-means (K ≈ √(N/2), k-means++ con 4 ripartenze), cluster pertinenti = quelli più vicini al
+  profilo del caso (parte RUOLO delle istruzioni). Sotto 40 documenti sono tutti pertinenti. Sull'archivio del giorno 3:
+  24/24 documenti del caso presi, 1 intruso su 1000. Le domande sul caso ricevono solo documenti pertinenti; se la
+  domanda riguarda file non pertinenti (es. "parlami dell'equatore") il modello ne riceve il testo segnato come non
+  pertinente e ne parla, ma non diventano mai indizi, eventi o luoghi (`cerca`, `del_caso`). numpy lo rende istantaneo (`--with numpy` nel .bat), senza ~1 minuto.
+- **Non pertinenti (campo `consultazione`)**: le voci enciclopediche sono segnalate al modello e non diventano mai indizi, eventi o luoghi
+  (`del_caso` in `server.py`). Il diario delle risposte (`diario_chat.jsonl`) non entra nell'indice.
+- **Documenti uguali, risposte uguali**: i fine riga si uniformano alla lettura (`decodifica`) e i documenti si ordinano
+  per nome (`ordine_naturale`), così lo stesso file dà lo stesso prompt da qualunque cartella o sistema arrivi.
 - **Scelta dei brani (RAG)**: `Indice.cerca` fonde con RRF tre classifiche: parole chiave (BM25), significato (embedding) e,
   solo se la migliore similarità è sotto `HYDE_SOGLIA`, HyDE (il modello scrive una risposta ipotetica, `risposta_ipotetica`
-  in `modello.py`, e si cercano i brani simili a quella). I brani di consultazione valgono `PESO_CONSULTAZIONE`.
-  Interruttori in `config.py`: `HYDE = False` e `PESO_CONSULTAZIONE = 1` tornano alla ricerca di prima.
+  in `modello.py`, e si cercano i brani simili a quella).
+  Interruttore in `config.py`: `HYDE = False` torna alla ricerca senza HyDE.
 - **Citazioni**: `[G1-02]`, `[ARCH-6408]` o `[LX4-7783]` diventano link se corrispondono al nome del file o all'ID scritto
   nel documento (`id_interno` in `backend/indice.py`, `documentoCitato` in `app.js`), senza badare a trattini e maiuscole.
 - **Colori e temi**: solo le variabili in cima a `frontend/app.css`. Colori delle puntine: `--p-indizio`, `--p-ipotesi`, `--p-evento`, `--p-persona`, `--p-luogo` in `frontend/bacheca.html`.
@@ -100,7 +137,7 @@ solo la libreria standard (più `requests`) nel backend.
   persone né luoghi. Entrambi contano solo come prima parola del nome, così un cognome come "Canale" resta valido.
   Scritte in minuscolo subito prima di un nome lo rendono il nome di quella cosa ("il deposito Darsena Vuota",
   "i ripetitori Rame e Fosso"). I documenti con `source: https://…` (le voci di Wikipedia dell'archivio) sono di
-  consultazione: si cercano, ma non entrano nell'elenco delle persone (`di_consultazione` in `backend/indice.py`).
+  non pertinenti per il clustering: non entrano nell'elenco delle persone.
 - **Ogni chiamata a Ollama** passa da `prepara_richiesta` (`lazarus.py`, usata anche da `backend/modello.py`): mette un codice
   diverso in testa al prompt, così Ollama non riusa lo stato di una domanda precedente (con gemma a volte lo riprendeva
   sbagliato e il modello perdeva il ruolo), e allarga il contesto se istruzioni + documenti + risposta non ci stanno.

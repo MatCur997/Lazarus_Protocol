@@ -10,8 +10,9 @@ rem Per provare senza modello:  avvia_interfaccia.bat --demo
 cd /d "%~dp0"
 
 set "PY="
-rem Con uv: stesso Python e `requests` di app_lazarus (che fornisce modello e istruzioni)
-where uv >nul 2>nul && set "PY=uv run --python 3.12 --with requests"
+rem Con uv: stesso Python e `requests` di app_lazarus (che fornisce modello e istruzioni);
+rem numpy rende il clustering di pertinenza istantaneo (senza, funziona lo stesso ma in circa un minuto)
+where uv >nul 2>nul && set "PY=uv run --python 3.12 --with requests --with numpy"
 if not defined PY where py >nul 2>nul && set "PY=py -3"
 if not defined PY where python >nul 2>nul && set "PY=python"
 if not defined PY (
