@@ -1,24 +1,61 @@
 {
-  "_nota": "Una voce per database (nome del file). parametri: valori che la centrale può aggiornare (si salvano in registro/missioni_parametri.json, questo file resta com'è). regole: testo per il modello, {nome} viene sostituito con il parametro. ipotesi: significato ipotizzato delle tabelle (la mappa della squadra: le prove le calcola il profilo del database). passi: piano a più query per le domande risolutive. verdetto: controllo calcolato dal codice sulle righe restituite.",
-
+  "_nota": "Una voce per database (nome del file). parametri: valori che la centrale può aggiornare (si salvano in registro/missioni_parametri.json, questo file resta com'è). regole: testo per il modello, {nome} viene sostituito con il parametro. ipotesi: significato ipotizzato delle tabelle (la mappa della squadra: le prove le calcola il profilo del database). passi: piano a più query per le domande risolutive. verdetto: controllo calcolato dal codice sulle righe restituite. riserva: query della squadra per quel passo, eseguita solo se il modello non riesce a scriverne una valida dopo tutti i tentativi (il risultato lo dice).",
   "accessi_g_4.sqlite": {
     "titolo": "Giorno 4 · accesso al deposito (accessi_g_4)",
-    "parole": ["deposito", "lume", "contenitore", "rv628", "bastione", "pratica", "settore", "tracciamento", "tracciare"],
-    "parametri": {"istante": "2031-10-12 06:00"},
+    "parole": [
+      "deposito",
+      "lume",
+      "contenitore",
+      "rv628",
+      "bastione",
+      "pratica",
+      "settore",
+      "tracciamento",
+      "tracciare"
+    ],
+    "parametri": {
+      "istante": "2031-10-12 06:00"
+    },
     "regole": [
       "Il codice è testo: conserva eventuali zeri iniziali.",
       "Data della missione: {istante}. Un permesso è valido solo se stato è 'attivo' e valido_fino è almeno '{istante}' (le date sono testi AAAA-MM-GG hh:mm: confrontali come testi).",
       "Persona, deposito, settore e pratica devono corrispondere tutti. I dati richiesti per la ricerca arrivano dai dossier.",
       "Se la domanda chiede la validità a un'altra data o ora, confronta valido_fino con quella invece che con la data della missione."
     ],
-    "verdetto": {"tipo": "stato_scadenza", "stato": "stato", "attivo": "attivo", "fine": "valido_fino", "codice": "codice"}
+    "verdetto": {
+      "tipo": "stato_scadenza",
+      "stato": "stato",
+      "attivo": "attivo",
+      "fine": "valido_fino",
+      "codice": "codice"
+    }
   },
-
   "archivio_recuperato.sqlite": {
     "titolo": "Giorno 4 · Operazione Varco (archivio recuperato)",
-    "parole": ["varco", "cocito", "v-46", "terminale", "terminali", "chiave", "sanitario", "sicurezza", "operatori autorizzati",
-               "finestra", "finestre", "archivio recuperato", "abilitazion", "sospension", "mappa delle tabelle", "dizionario"],
-    "parametri": {"istante": "2026-11-04 12:00", "varco": "V-46", "archivio": "Archivio Cocito", "canale_veicolo": null},
+    "parole": [
+      "varco",
+      "cocito",
+      "v-46",
+      "terminale",
+      "terminali",
+      "chiave",
+      "sanitario",
+      "sicurezza",
+      "operatori autorizzati",
+      "finestra",
+      "finestre",
+      "archivio recuperato",
+      "abilitazion",
+      "sospension",
+      "mappa delle tabelle",
+      "dizionario"
+    ],
+    "parametri": {
+      "istante": "2026-11-04 12:00",
+      "varco": "V-46",
+      "archivio": "Archivio Cocito",
+      "canale_veicolo": null
+    },
     "regole": [
       "Istante richiesto: {istante}. Varco richiesto: {varco} ({archivio}). Canale del lettore del veicolo: {canale_veicolo}.",
       "Due persone: servono un SANITARIO e un addetto SICUREZZA con identificativi diversi. La stessa persona con due abilitazioni non basta.",
@@ -50,17 +87,35 @@
       "r14": "copie storiche dei permessi (REPLICA_TURNO_PRECEDENTE): fonte storica, non prova",
       "r15": "accessi passati ai terminali (k1 terminale r09, k2 persona r03, ts_a quando, v1 esito OK/NEGATO, v2 chiave usata): fonte storica, non prova"
     },
-    "verdetto": {"tipo": "varco", "ruoli": ["SANITARIO", "SICUREZZA"]},
+    "verdetto": {
+      "tipo": "varco",
+      "ruoli": [
+        "SANITARIO",
+        "SICUREZZA"
+      ]
+    },
     "risolutiva": "operator\\w* autorizzat|chi (puo|possono) (aprire|entrare|accedere)|accesso valido|apri\\w* il varco|terminale e (la )?chiave|soluzione|risolv|chiave (valida|corrente)|quale terminale|quali operatori|coppia",
     "passi": [
-      {"scopo": "Terminali del varco {varco}",
-       "obiettivo": "Trova il varco con codice '{varco}' e TUTTI i terminali che lo controllano. Colonne: terminale (k0 del terminale), canale, stato. Nessun altro filtro: servono anche i terminali da escludere."},
-      {"scopo": "Permessi delle squadre per il varco {varco}",
-       "obiettivo": "Per il varco '{varco}' elenca TUTTI i permessi di squadra (anche BLOCCATI e scaduti) con la revoca collegata se c'è (LEFT JOIN: la revoca si collega al PERMESSO tramite la sua chiave primaria, non alla squadra). Colonne: permesso (k0), squadra (k0), nome_squadra, ruolo, stato, permesso_inizio, permesso_fine, revoca_effetto, motivo_revoca."},
-      {"scopo": "Persone delle squadre candidate",
-       "obiettivo": "Per TUTTE le squadre che hanno almeno un permesso per il varco '{varco}' (sottoquery sui permessi del varco, senza filtri di stato o data), elenca le persone con appartenenza alla squadra, abilitazione per il ruolo e sospensione (LEFT JOIN). Colonne: persona (k0 della persona), nome, badge, squadra (k0 della squadra), nome_squadra, ruolo, membro_inizio, membro_fine, abil_inizio, abil_fine, sosp_inizio, sosp_fine, motivo_sospensione."},
-      {"scopo": "Finestre e chiavi dei terminali",
-       "obiettivo": "Per i terminali del varco trovati nel primo passo elenca le finestre di apertura e le versioni della chiave (LEFT JOIN). Colonne: terminale, canale, stato, finestra_inizio, finestra_fine, chiave, chiave_inizio, chiave_fine."}
+      {
+        "scopo": "Terminali del varco {varco}",
+        "obiettivo": "Trova il varco con codice '{varco}' e TUTTI i terminali che lo controllano. Colonne: terminale (k0 del terminale), canale, stato. Nessun altro filtro: servono anche i terminali da escludere.",
+        "riserva": "SELECT r09.k0 AS terminale, r09.v1 AS canale, r09.v2 AS stato FROM r09 JOIN r07 ON r09.k1 = r07.k0 JOIN r02 ON r07.k1 = r02.k0 WHERE r07.v1 = '{varco}' AND r02.v1 = '{archivio}'"
+      },
+      {
+        "scopo": "Permessi delle squadre per il varco {varco}",
+        "obiettivo": "Per il varco '{varco}' elenca TUTTI i permessi di squadra (anche BLOCCATI e scaduti) con la revoca collegata se c'è (LEFT JOIN: la revoca si collega al PERMESSO tramite la sua chiave primaria, non alla squadra). Colonne: permesso (k0), squadra (k0), nome_squadra, ruolo, stato, permesso_inizio, permesso_fine, revoca_effetto, motivo_revoca.",
+        "riserva": "SELECT r08.k0 AS permesso, r08.k1 AS squadra, r11.v1 AS nome_squadra, r08.v1 AS ruolo, r08.v2 AS stato, r08.ts_a AS permesso_inizio, r08.ts_b AS permesso_fine, e10.ts_a AS revoca_effetto, e10.v1 AS motivo_revoca FROM r08 JOIN r11 ON r08.k1 = r11.k0 JOIN r07 ON r08.k2 = r07.k0 JOIN r02 ON r07.k1 = r02.k0 LEFT JOIN e10 ON e10.k1 = r08.k0 WHERE r07.v1 = '{varco}' AND r02.v1 = '{archivio}'"
+      },
+      {
+        "scopo": "Persone delle squadre candidate",
+        "obiettivo": "Per TUTTE le squadre che hanno almeno un permesso per il varco '{varco}' (sottoquery sui permessi del varco, senza filtri di stato o data), elenca le persone con appartenenza alla squadra, abilitazione per il ruolo e sospensione (LEFT JOIN). Colonne: persona (k0 della persona), nome, badge, squadra (k0 della squadra), nome_squadra, ruolo, membro_inizio, membro_fine, abil_inizio, abil_fine, sosp_inizio, sosp_fine, motivo_sospensione.",
+        "riserva": "SELECT r03.k0 AS persona, r03.v1 AS nome, r03.v2 AS badge, m12.k2 AS squadra, r11.v1 AS nome_squadra, r06.v1 AS ruolo, m12.ts_a AS membro_inizio, m12.ts_b AS membro_fine, r06.ts_a AS abil_inizio, r06.ts_b AS abil_fine, e04.ts_a AS sosp_inizio, e04.ts_b AS sosp_fine, e04.v1 AS motivo_sospensione FROM m12 JOIN r03 ON m12.k1 = r03.k0 JOIN r11 ON m12.k2 = r11.k0 JOIN r06 ON r06.k1 = r03.k0 LEFT JOIN e04 ON e04.k1 = r03.k0 WHERE m12.k2 IN (SELECT r08.k1 FROM r08 JOIN r07 ON r08.k2 = r07.k0 JOIN r02 ON r07.k1 = r02.k0 WHERE r07.v1 = '{varco}' AND r02.v1 = '{archivio}')"
+      },
+      {
+        "scopo": "Finestre e chiavi dei terminali",
+        "obiettivo": "Per i terminali del varco trovati nel primo passo elenca le finestre di apertura e le versioni della chiave (LEFT JOIN). Colonne: terminale, canale, stato, finestra_inizio, finestra_fine, chiave, chiave_inizio, chiave_fine.",
+        "riserva": "SELECT r09.k0 AS terminale, r09.v1 AS canale, r09.v2 AS stato, m05.ts_a AS finestra_inizio, m05.ts_b AS finestra_fine, r13.v1 AS chiave, r13.ts_a AS chiave_inizio, r13.ts_b AS chiave_fine FROM r09 JOIN r07 ON r09.k1 = r07.k0 JOIN r02 ON r07.k1 = r02.k0 LEFT JOIN m05 ON m05.k1 = r09.k0 LEFT JOIN r13 ON r13.k1 = r09.k0 WHERE r07.v1 = '{varco}' AND r02.v1 = '{archivio}'"
+      }
     ]
   }
 }

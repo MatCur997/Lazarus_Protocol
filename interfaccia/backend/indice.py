@@ -36,6 +36,14 @@ def giorno_di(percorso, testo, doc_id, interno=None):
     return int(m[1]) if m else None
 
 
+CARTELLA_NOTE = 'Note_squadra'     # testi scritti in chat in modalità "nota": caricati/Note_squadra_giorno_N/
+
+
+def e_nota(d):
+    """Nota scritta dalla squadra in chat: è un'informazione data apposta per l'indagine, il clustering non la scarta."""
+    return any(parte.startswith(CARTELLA_NOTE) for parte in Path(d.get('percorso', '')).parts)
+
+
 def copia_di_tabella(percorso, tabelle_db):
     """Vero se il CSV è l'esportazione di una tabella di un database che sta nella stessa cartella o sopra
     (stesso nome e stesse colonne): come documento ripeterebbe i dati del database e sporcherebbe ricerca e clustering."""
@@ -442,7 +450,7 @@ class Indice:
             if set(self.documenti) != set(documenti):
                 return                     # nel frattempo sono cambiati i documenti: ci penserà il prossimo calcolo
             for d in self.documenti.values():
-                d['consultazione'] = d['id'] not in presi
+                d['consultazione'] = d['id'] not in presi and not e_nota(d)   # le note della squadra contano sempre
                 d['pertinenza'] = round(somiglianza[d['id']], 3) if d['id'] in somiglianza else None
             for b in self.brani:
                 b['consultazione'] = self.documenti[b['doc']]['consultazione']

@@ -364,3 +364,16 @@ body.scheda { background: var(--scrivania) var(--carta-grana); }
 .sql-blocco tr.sql-valida td { background: rgba(47, 122, 75, .12); }
 .sql-blocco tr.sql-esclusa td { color: var(--tenue); }
 .sql-blocco .sql-altre { font-size: 11px; color: var(--debole); margin-top: 4px; }
+
+/* interruttore Domanda / Nota nella casella di testo */
+.modo-input { display: flex; flex: none; border: 1px solid var(--bordo); border-radius: 2px; overflow: hidden; height: 40px; }
+.modo-input button { border: 0; background: none; color: var(--tenue); padding: 0 10px; font: 700 10.5px/1 var(--titoli); letter-spacing: 1px; text-transform: uppercase; cursor: pointer; }
+.modo-input button + button { border-left: 1px solid var(--bordo); }
+.modo-input button.attivo { background: var(--testo); color: var(--pannello); }
+.modo-input button:focus-visible { outline: 2px solid var(--testo); outline-offset: -2px; }
+#giorno-nota { flex: none; height: 40px; border: 1px solid var(--bordo); background: var(--sfondo); color: var(--testo); font: 12px var(--mono); padding: 0 6px; border-radius: 2px; }
+.input-chat.modo-nota textarea#domanda { border-color: #c6352f; border-style: dashed; }
+.input-chat.modo-nota .btn-tondo.invia { background: #c6352f; border-color: #c6352f; }
+.msg.utente.nota { background: var(--pannello); color: var(--testo); border: 1px dashed #c6352f; white-space: pre-wrap; }
+.msg.utente.nota .ora { color: #c6352f; }
+@media (max-width: 700px) { .modo-input button { padding: 0 6px; } #giorno-nota { max-width: 90px; } }

@@ -40,7 +40,7 @@ import missioni
 import sql as sql_tool
 from config import (CARTELLA_CARICATI, CARTELLA_REGISTRO, ESTENSIONI_OK, ESTRAZIONE_CON_MODELLO, MAX_UPLOAD, PORTA, PROGETTO, STATICI,
                     STRUMENTI, TOP_K)
-from indice import Indice, contesto_da_fonti
+from indice import CARTELLA_NOTE, Indice, contesto_da_fonti
 from modello import estrai_con_modello, modelli_disponibili, precarica, verifica_citazione
 from storico import Storico
 from volti import Volti
@@ -133,7 +133,8 @@ class Gestore(BaseHTTPRequestHandler):
                    'embedding': INDICE.embedding_ok, 'modello_embedding': cfg.MODELLO_EMBEDDING,
                    'documenti': len(INDICE.documenti), 'brani': len(INDICE.brani), 'top_k': TOP_K,
                    'database': [d['nome'] for d in INDICE.database],
-                   'avviso': cfg.AVVISO_LAZARUS, 'pertinenza': INDICE.info_pertinenza})
+                   'avviso': cfg.AVVISO_LAZARUS, 'pertinenza': INDICE.info_pertinenza,
+                   'giorni': sorted({d.get('giorno') for d in list(INDICE.documenti.values()) + INDICE.database} - {None})})
 
     def api_strumenti(self):
         uso = defaultdict(list)
@@ -461,6 +462,8 @@ class Gestore(BaseHTTPRequestHandler):
                 return self.api_rimuovi(self.corpo_json())
             if url.path == '/api/storico/elimina':
                 return self.json({'eliminate': STORICO.elimina(self.corpo_json().get('id') or '__nessuna__')})
+            if url.path == '/api/nota':
+                return self.api_nota(self.corpo_json())
             if url.path == '/api/missione/parametri':
                 return self.api_missione_parametri(self.corpo_json())
             if url.path == '/api/storico/svuota':
@@ -529,6 +532,43 @@ class Gestore(BaseHTTPRequestHandler):
         evento = {'nome': 'carica_file', 'ms': ms(t), 'dettaglio': f'{nome}: {len(salvati)} file'}
         EVENTI_CARICAMENTO.append(evento)
         self.json({'salvati': salvati, 'documenti': len(INDICE.documenti), 'brani': len(INDICE.brani), 'ms': evento['ms']})
+
+    def api_nota(self, corpo):
+        """Il testo scritto in chat in modalità "nota" diventa un file .txt della base di conoscenza:
+        caricati/Note_squadra_giorno_N/NOTA-<data-ora>.txt, con un'intestazione "ID ..." per essere citato ([NOTA-...])."""
+        testo = (corpo.get('testo') or '').strip()
+        if not testo:
+            raise ValueError('Nota vuota')
+        if len(testo) > 20000:
+            raise ValueError('Nota troppo lunga (massimo 20000 caratteri): caricala come file con +')
+        giorno = corpo.get('giorno')
+        giorno = int(giorno) if str(giorno or '').isdigit() and 0 < int(giorno) < 100 else None
+        t = time.perf_counter()
+        quando = time.strftime('%Y-%m-%d %H:%M:%S')
+        nota_id = 'NOTA-' + time.strftime('%Y%m%d-%H%M%S')
+        cartella = CARTELLA_CARICATI / (f'{CARTELLA_NOTE}_giorno_{giorno}' if giorno else CARTELLA_NOTE)
+        cartella.mkdir(parents=True, exist_ok=True)
+        percorso = cartella / f'{nota_id}.txt'
+        n = 1
+        while percorso.exists():          # due note nello stesso secondo
+            n += 1
+            percorso = cartella / f'{nota_id}-{n}.txt'
+        titolo = (corpo.get('titolo') or '').strip()
+        if not titolo:          # prime parole intere (mai un codice tagliato a metà: "QZ-99" sembrava un altro codice)
+            parole_titolo, titolo = testo.splitlines()[0].split(), ''
+            for p in parole_titolo:
+                if len(titolo) + len(p) > 70:
+                    titolo += ' …'
+                    break
+                titolo = f'{titolo} {p}'.strip()
+        percorso.write_text(f'ID {percorso.stem}\n{titolo}\n\nNota inserita dalla squadra in chat il {quando}'
+                            + (f' (giorno {giorno})' if giorno else '') + f'.\n\n{testo}\n', encoding='utf-8')
+        INDICE.ricarica()
+        INDICE.calcola_embedding()
+        evento = {'nome': 'carica_file', 'ms': ms(t), 'dettaglio': f'nota {percorso.stem} ({len(testo)} caratteri)'}
+        EVENTI_CARICAMENTO.append(evento)
+        self.json({'id': percorso.stem, 'file': str(percorso.relative_to(CARTELLA_CARICATI)), 'giorno': giorno,
+                   'documenti': len(INDICE.documenti), 'ms': evento['ms']})
 
     def api_reindicizza(self):
         """Dopo il caricamento di una cartella: un solo ricalcolo dell'indice per tutti i file."""
@@ -711,6 +751,21 @@ class Gestore(BaseHTTPRequestHandler):
                                                   else f'{modello}: {stat.get("token", 0)} token, prompt {stat.get("prompt_token", 0)}'
                                                   + (' · TRONCATA al tetto di token' if stat.get('fine') == 'length' else ''))})
 
+        # identità inventate ("LZ-474, che è Luca Serra"): se nessun documento le contiene entrambe, avviso in fondo
+        non_provate = []
+        if risposta and not fisso and not errore:
+            with INDICE.lock:
+                testi = [d['testo'] for d in INDICE.documenti.values()]
+            non_provate = motore.identita_non_provate(risposta, testi)
+            if non_provate:
+                aggiunta = motore.avviso_identita(non_provate)
+                risposta += aggiunta
+                try:
+                    invia({'tipo': 'token', 'testo': aggiunta})
+                except OSError:
+                    pass
+                strumenti[-1]['dettaglio'] += ' · identità non provate segnalate: ' + ', '.join(f'{c} = {n}' for c, n in non_provate)
+
         t = time.perf_counter()
         persone = INDICE.persone_in(risposta) if risposta else []
         strumenti.append({'nome': 'estrai_persone', 'ms': ms(t), 'dettaglio': ', '.join(persone) or 'nessuna'})
@@ -769,7 +824,10 @@ class Gestore(BaseHTTPRequestHandler):
         luoghi += [x for x in estrai_luoghi('\n'.join(f['testo'] for f in citate), persone)
                    if chiave(x['nome']) not in noti and chiave(x['nome']) in chiave(risposta)]
         # nella colonna destra va solo ciò che ha un riscontro nei documenti
-        con_riscontro = lambda elenco: [e for e in elenco if e.get('verificato', True)]
+        # ...e senza identità non provate: "Luca Serra riprende coscienza" (detto di LZ-474) non va in bacheca
+        testo_di = lambda e: json.dumps(e, ensure_ascii=False)
+        senza_falsi = lambda e: not any(c in testo_di(e) and n.split()[-1] in testo_di(e) for c, n in non_provate)
+        con_riscontro = lambda elenco: [e for e in elenco if e.get('verificato', True) and senza_falsi(e)]
         elementi = {'luoghi': con_riscontro(luoghi), 'indizi': con_riscontro(indizi), 'eventi': con_riscontro(eventi),
                     'origine': origine}
         strumento = {'nome': 'estrai_elementi', 'ms': ms(t),

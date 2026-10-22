@@ -267,6 +267,24 @@ def controlla_join(query, percorso):
     return None
 
 
+RE_COLONNA_MANCANTE = re.compile(r'no such column: (?:(\w+)\.)?(\w+)')
+
+
+def suggerimento(errore, percorso):
+    """Dopo "no such column: r02.k1" il modello riceve le colonne vere di quella tabella (o dove sta la colonna)."""
+    m = RE_COLONNA_MANCANTE.search(errore or '')
+    if not m:
+        return ''
+    try:
+        tabelle = descrivi(percorso)['tabelle']
+    except Exception:
+        return ''
+    if m[1] and m[1] in tabelle:
+        return f'La tabella {m[1]} ha solo le colonne: {", ".join(tabelle[m[1]])}. Usa la tabella o l\'alias giusto. '
+    dove = [t for t, c in tabelle.items() if m[2] in c]
+    return f'La colonna {m[2]} esiste in: {", ".join(dove)}. ' if dove else ''
+
+
 def controlla_query(query, percorso=None):
     """Errori di metodo, prima ancora di eseguire: scegliere "il primo" ordinando gli identificativi è vietato,
     e le JOIN devono seguire le relazioni (dichiarate o dedotte) del database."""
@@ -345,14 +363,18 @@ def sintesi_varco(passi, m):
     con permessi validi, terminali utilizzabili, finestre e chiavi valide. Più possibilità = non si sceglie: si dice."""
     ruoli = (m.get('verdetto') or {}).get('ruoli', ['SANITARIO', 'SICUREZZA'])
     par = m['parametri']
-    if len(passi) < 4 or any(p.get('errore') for p in passi):
-        return 'Piano incompleto: almeno un passo non ha dato risultati, la conclusione non è calcolabile.'
+    falliti = [f'passo {i + 1} ({p["scopo"]}): {p["errore"]}' for i, p in enumerate(passi) if p.get('errore')]
+    if len(passi) < 4 or falliti:
+        return ('PIANO INCOMPLETO: ' + '; '.join(falliti or ['passi mancanti']) + '. La conclusione NON è calcolabile: '
+                'non dire che non esiste un accesso valido. Scrivi che la verifica non è riuscita e che va ripetuta.')
     righe = lambda i: [dict(zip([c.lower() for c in passi[i]['colonne']], r)) for r in passi[i]['righe']]
     valido = lambda r: str(r.get('esito', '')).startswith('VALIDO')
     # passo 2: squadre con un permesso valido per ogni ruolo
+    # un permesso con più righe (più revoche): basta una revoca efficace in una riga per escluderlo
+    revocati = {r.get('permesso') for r in righe(1) if 'efficace' in str(r.get('esito', ''))}
     per_squadra = {}
     for r in righe(1):
-        if valido(r):
+        if valido(r) and r.get('permesso') not in revocati:
             per_squadra.setdefault((r.get('squadra'), r.get('nome_squadra')), set()).add(str(r.get('ruolo')).upper())
     squadre = [s for s, rr in per_squadra.items() if all(x in rr for x in ruoli)]
     # la squadra nel passo 3 può arrivare come codice o come nome: si riporta sempre al codice del passo 2
@@ -361,15 +383,20 @@ def sintesi_varco(passi, m):
         codice_di.setdefault(str(r.get('nome_squadra')), r.get('squadra'))
         codice_di.setdefault(str(r.get('squadra')), r.get('squadra'))
     # passo 3: persone valide per ruolo dentro quelle squadre
-    persone = {}
-    esclusi = []
+    # una persona può avere più righe (rinnovi di abilitazione e appartenenza, più sospensioni): è valida se almeno
+    # una riga ha appartenenza e abilitazione valide E nessuna riga ha una sospensione attiva
+    sospesi = {r.get('persona'): str(r.get('esito'))[9:] for r in righe(2) if 'sosp attiva' in str(r.get('esito', ''))}
+    persone, motivi_persona = {}, {}
     for r in righe(2):
         squadra = codice_di.get(str(r.get('squadra')), codice_di.get(str(r.get('nome_squadra')), r.get('squadra')))
         chiave = (squadra, str(r.get('ruolo')).upper())
-        if valido(r):
+        nome = f'{r.get("nome")} ({r.get("badge")}, {r.get("ruolo")})'
+        if valido(r) and r.get('persona') not in sospesi:
             persone.setdefault(chiave, {})[r.get('persona')] = f'{r.get("nome")} ({r.get("badge")})'
         else:
-            esclusi.append(f'{r.get("nome")} ({r.get("badge")}, {r.get("ruolo")}): {str(r.get("esito"))[9:]}')
+            motivi_persona.setdefault((r.get('persona'), chiave[1]), (nome, sospesi.get(r.get('persona')) or str(r.get('esito'))[9:]))
+    valide = {(p, k[1]) for k, v in persone.items() for p in v}
+    esclusi = [f'{n}: {m}' for (p, ruolo), (n, m) in motivi_persona.items() if (p, ruolo) not in valide]
     coppie = []
     for s, nome in squadre:
         a, b = persone.get((s, ruoli[0]), {}), persone.get((s, ruoli[1]), {})
@@ -518,7 +545,7 @@ def _una_query(modello, messaggi, percorso, parametri, passo=False):
         tentativi.append({'sql': query, 'errore': esito.get('errore')})
         rifai = None
         if 'errore' in esito:
-            rifai = f'Errore: {esito["errore"]}. Correggi la query e rispondi solo con il JSON.'
+            rifai = f'Errore: {esito["errore"]}. {suggerimento(esito["errore"], percorso)}Correggi la query e rispondi solo con il JSON.'
         elif not passo and troppo_ampia(query, esito):
             esito = {'errore': f'richiesta troppo ampia ({len(esito["righe"])}{"+" if esito.get("altre_righe") else ""} righe '
                                'senza filtri): il tool non consegna elenchi in blocco, servono filtri o un conteggio'}
@@ -557,7 +584,8 @@ def agente_sql(modello, domanda, indizi, percorso, documenti=(), m=None):
                 'tentativi': [], 'valori_citati': [], 'relazioni': profila(percorso)['relazioni'],
                 'profilo': profila(percorso), 'ipotesi': m.get('ipotesi', {})}
     citati = valori_citati(percorso, documenti) if documenti else []
-    if missioni.e_risolutiva(m, domanda):
+
+    def piano():      # una query per regola (passi della missione), esiti e sintesi calcolati dal codice
         passi = []
         for x in m['passi']:
             precedenti = '\n\n'.join(f'PASSO {i + 1} · {p["scopo"]}\nSQL: {p["sql"]}\n{_righe_compatte(p)}' for i, p in enumerate(passi))
@@ -566,11 +594,21 @@ def agente_sql(modello, domanda, indizi, percorso, documenti=(), m=None):
                                                     f'PASSO {len(passi) + 1} · {missioni.compila(x["scopo"], m["parametri"])}\n'
                                                     f'{missioni.compila(x["obiettivo"], m["parametri"])}'}]
             r = _una_query(modello, messaggi, percorso, m['parametri'], passo=True)
+            if r['errore'] and x.get('riserva'):
+                # il modello non ci è riuscito: query di riserva della squadra (missioni.json), dichiarata nel risultato
+                q = missioni.compila(x['riserva'], m['parametri'], sql=True)
+                esito = interroga_database(q, percorso, MAX_RIGHE_PASSO)
+                if 'errore' not in esito:
+                    colonne, righe = annota(esito['colonne'], esito['righe'], m['parametri'], True)
+                    r = {**r, 'sql': q, 'colonne': colonne, 'righe': righe, 'altre_righe': esito['altre_righe'], 'errore': None,
+                         'riserva': f'query del modello fallita ({r["errore"]}): usata la query di riserva della squadra'}
             passi.append({'scopo': missioni.compila(x['scopo'], m['parametri']), **r})
         sintesi = sintesi_varco(passi, m) if (m.get('verdetto') or {}).get('tipo') == 'varco' else ''
         ultimo = passi[-1]
         return {**base, **ultimo, 'errore': next((p['errore'] for p in passi if p['errore']), None), 'passi': passi,
                 'sintesi': sintesi, 'tentativi': [t for p in passi for t in p['tentativi']], 'valori_citati': citati[:20]}
+    if missioni.e_risolutiva(m, domanda):
+        return piano()
     # i documenti che citano DUE o più valori del database li collegano tra loro (es. deposito + pratica): sono gli
     # indizi più forti per capire quale combinazione è quella della missione
     conta = {}
@@ -585,6 +623,12 @@ def agente_sql(modello, domanda, indizi, percorso, documenti=(), m=None):
                                             f'DOCUMENTI CHE COLLEGANO PIÙ VALORI DEL DATABASE:\n{collegamenti}\n\n'
                                             f'INDIZI DEI DOSSIER:\n{indizi or "(nessuno)"}\n\nDOMANDA: {domanda}'}]
     r = _una_query(modello, messaggi, percorso, m['parametri'])
+    if r['errore'] and m.get('passi') and (missioni.RE_CHI.search(missioni._norma(domanda)) or missioni.RE_ACCESSO.search(missioni._norma(domanda))):
+        # la query unica non è riuscita su una domanda di persone o accessi: il piano a passi la scompone per regola
+        risultato = piano()
+        risultato['tentativi'] = r['tentativi'] + risultato['tentativi']
+        risultato['ripiego'] = f'query unica fallita ({r["errore"]}): usato il piano a passi'
+        return risultato
     return {**base, **r, 'valori_citati': citati[:20]}
 
 

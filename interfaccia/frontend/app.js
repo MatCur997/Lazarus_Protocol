@@ -482,7 +482,58 @@ function mostraElementi(el, elementi) {
 }
 
 const area = $('#domanda');
-function invia() { const t = area.value; area.value = ''; adatta(); chiedi(t); }
+// Interruttore nella casella di testo: "Domanda" chiede all'investigatore, "Nota" salva il testo come file .txt
+// della base di conoscenza (caricati/Note_squadra_giorno_N/NOTA-<data-ora>.txt), che da quel momento si può citare.
+let modo = 'domanda';
+const SEGNAPOSTO = {
+  domanda: "Chiedi all'investigatore…  (Invio per inviare, Maiusc+Invio per andare a capo)",
+  nota: 'Scrivi l\'informazione da aggiungere alla base di conoscenza…  (Invio per salvarla come file .txt)',
+};
+function impostaModo(nuovo) {
+  modo = nuovo;
+  document.querySelectorAll('.modo-input button').forEach((b) => {
+    b.classList.toggle('attivo', b.dataset.modo === modo);
+    b.setAttribute('aria-checked', String(b.dataset.modo === modo));
+  });
+  area.placeholder = SEGNAPOSTO[modo];
+  $('.input-chat').classList.toggle('modo-nota', modo === 'nota');
+  $('#giorno-nota').hidden = modo !== 'nota';
+  if (modo === 'nota') riempiGiorni();
+  area.focus();
+}
+function riempiGiorni() {
+  // i giorni noti dell'indagine più il successivo (la nota può aprire un giorno nuovo); predefinito: l'ultimo noto
+  const sel = $('#giorno-nota');
+  const noti = (stato.server && stato.server.giorni) || [];
+  const ultimo = noti.length ? Math.max(...noti) : 1;
+  const prima = sel.value;
+  sel.innerHTML = '<option value="">senza giorno</option>' + [...new Set([...noti, ultimo + 1])].sort((a, b) => a - b)
+    .map((g) => `<option value="${g}">giorno ${g}${noti.includes(g) ? '' : ' (nuovo)'}</option>`).join('');
+  sel.value = prima || String(ultimo);
+}
+document.querySelectorAll('.modo-input button').forEach((b) => b.addEventListener('click', () => impostaModo(b.dataset.modo)));
+
+async function aggiungiNota(testo) {
+  testo = testo.trim();
+  if (!testo) return;
+  $('.benvenuto', messaggi)?.remove();
+  const giorno = $('#giorno-nota').value;
+  messaggi.insertAdjacentHTML('beforeend', `<div class="msg utente nota"><span class="ora">${ora()} · nota per la base di conoscenza${giorno ? ` · giorno ${giorno}` : ''}</span>${esc(testo)}</div>`);
+  scorri();
+  try {
+    const r = await postJson('/api/nota', { testo, giorno: giorno || null });
+    sistema(`Nota salvata come ${r.file}: ora è un documento dell'indagine (citabile come [${r.id}]). Indice di ${r.documenti} documenti (${r.ms} ms).`);
+    await aggiornaTutto();
+  } catch (err) {
+    sistema(`Nota non salvata: ${err.message}`);
+  }
+}
+
+function invia() {
+  const t = area.value;
+  area.value = ''; adatta();
+  if (modo === 'nota') aggiungiNota(t); else chiedi(t);
+}
 function adatta() { area.style.height = 'auto'; area.style.height = Math.min(area.scrollHeight, 140) + 'px'; }
 area.addEventListener('input', adatta);
 area.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); invia(); } });

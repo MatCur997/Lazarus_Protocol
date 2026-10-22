@@ -88,6 +88,11 @@
         <input type="file" id="cartella" hidden webkitdirectory multiple>
         <button class="btn-tondo piu svuota" id="svuota-caricati-chat" title="Togli tutti i documenti caricati" hidden>
           <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+        <div class="modo-input" role="radiogroup" aria-label="Cosa fare con il testo scritto">
+          <button type="button" role="radio" aria-checked="true" data-modo="domanda" class="attivo" title="Il testo è una domanda per l'investigatore">Domanda</button>
+          <button type="button" role="radio" aria-checked="false" data-modo="nota" title="Il testo diventa un file .txt della base di conoscenza (Note_squadra)">Nota</button>
+        </div>
+        <select id="giorno-nota" hidden title="Giorno dell'indagine a cui appartiene la nota"></select>
         <textarea id="domanda" rows="1" placeholder="Chiedi all'investigatore…  (Invio per inviare, Maiusc+Invio per andare a capo)"></textarea>
         <button class="btn-tondo invia" id="invia" title="Invia"><svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button>
       </div>

@@ -42,10 +42,15 @@ def missione(nome_db):
     return m
 
 
-def compila(testo, parametri):
-    """'{istante}' -> valore del parametro; un parametro senza valore diventa 'NON INDICATO (chiedere alla centrale)'."""
-    return re.sub(r'\{(\w+)\}', lambda m: str(parametri[m[1]]) if parametri.get(m[1]) not in (None, '')
-                  else 'NON INDICATO (chiedere alla centrale)' if m[1] in parametri else m[0], testo)
+def compila(testo, parametri, sql=False):
+    """'{istante}' -> valore del parametro; un parametro senza valore diventa 'NON INDICATO (chiedere alla centrale)'.
+    sql=True: dentro una query, gli apici del valore si raddoppiano (un parametro non può chiudere la stringa SQL)."""
+    def valore(m):
+        if parametri.get(m[1]) in (None, ''):
+            return 'NON INDICATO (chiedere alla centrale)' if m[1] in parametri else m[0]
+        v = str(parametri[m[1]])
+        return v.replace("'", "''") if sql else v
+    return re.sub(r'\{(\w+)\}', valore, testo)
 
 
 def regole_testo(m):
@@ -61,9 +66,26 @@ def punteggio(m, domanda, valori=()):
     return punti
 
 
+RE_CHI = re.compile(r'\b(chi|nom[ei]|quali|quale|persone|operator\w*|addett\w*|trova\w*|dimmi|dammi|elenca)\b')
+RE_ACCESSO = re.compile(r'\b(acced\w*|access\w*|apr\w*|entra\w*|insieme|autorizz\w*|abilitat\w*|varco|terminal\w*|chiav\w*)\b')
+
+
 def e_risolutiva(m, domanda):
-    """Domanda che chiede la soluzione (operatori autorizzati, terminale e chiave): si usa il piano a passi."""
-    return bool(m.get('passi')) and bool(m.get('risolutiva')) and bool(re.search(m['risolutiva'], _norma(domanda)))
+    """Domanda che chiede la soluzione (chi può accedere, terminale e chiave): si usa il piano a passi.
+    Non basta una frase fissa: "ci sono 2 persone che accedono all'archivio Cocito solo insieme, un sanitario e uno della
+    sicurezza, trovami i nomi" è la stessa domanda di "quali operatori autorizzati aprono il varco V-46".
+    Vale se: la frase della missione, oppure i ruoli richiesti nominati, oppure chi/nomi + accesso + varco/archivio."""
+    if not m.get('passi'):
+        return False
+    q = _norma(domanda)
+    if m.get('risolutiva') and re.search(m['risolutiva'], q):
+        return True
+    ruoli = [r.lower() for r in (m.get('verdetto') or {}).get('ruoli', [])]
+    nominati = sum(1 for r in ruoli if r[:6] in q)
+    luogo = any(isinstance(v, str) and len(v) >= 3 and _norma(v) in q for v in m['parametri'].values()) \
+        or bool(re.search(r'\b(varco|archivio)\b', q))
+    return (len(ruoli) > 1 and nominati >= len(ruoli) and bool(RE_CHI.search(q) or RE_ACCESSO.search(q))) \
+        or (luogo and bool(RE_CHI.search(q)) and bool(RE_ACCESSO.search(q)))
 
 
 # ------------------------------------------------------------------ aggiornamenti della centrale
