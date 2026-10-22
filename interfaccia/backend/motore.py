@@ -14,6 +14,7 @@ import config as cfg
 from indice import contesto_da_fonti, diversifica, fonte_da_brano, limita_per_documento, np, tutto_nel_contesto
 from modello import embed, genera_demo, genera_ollama, risposta_ipotetica, riscrivi_con_modello
 from testo import PREFISSI_COSA, PREFISSI_LUOGO, estrai_luoghi, estrai_nomi, ms, parole
+from scenario import RE_CODICE, RE_ID_DOCUMENTO
 
 
 def controlla_pertinenza(indice, modello, domanda, strumenti, demo=False):
@@ -63,14 +64,10 @@ def pertinenza_col_modello(indice, domanda, demo=False):
     return regole(domanda, nomi) is None
 
 
-# Ricerca a salti: pratica -> lotto -> armadio sono in documenti diversi e la domanda nomina solo il primo anello.
-# Dai documenti migliori si prendono i codici (M462, K491...) e si cercano come parola intera: "M462" non è "M462-050".
-RE_CODICE = re.compile(r'(?<![\w-])([A-Z]{1,4}-?\d{2,5})(?![\w]|-\d)')
-RE_ID_DOCUMENTO = re.compile(r'^(?:LX\d?|G\d|ARCH)-?\d+$')
 SALTI, CODICI_PER_SALTO, BRANI_PER_CODICE, FONTI_DI_PARTENZA, MAX_CITAZIONI_GIA_TROVATE = 2, 3, 3, 3, 2
 MAX_BRANI_AGGIUNTI = 6      # in tutto, per non riempire il contesto
 ENTITA_MAX_BRANI = 12       # un nome di persona o di luogo si segue solo se compare in al massimo questi brani del caso: un nome più comune è un nodo
-                            # che collega tutto con tutto («Ripetitore Rame» in centinaia di bollettini), uno raro collega due o tre documenti
+                            # che collega tutto con tutto (il nome di un impianto ripetuto in centinaia di bollettini), uno raro collega due o tre documenti
 
 
 def codici_in(testo):
@@ -220,9 +217,10 @@ def riscrivi_domanda(modello, domanda, cronologia, strumenti, demo=False):
 def cerca_fonti(indice, domanda, precedenti, strumenti, modello=None, demo=False, traccia=None, riscritta=None):
     """Sceglie i brani da dare al modello. `strumenti` si riempie con {nome, ms, dettaglio} di ogni passo.
     `riscritta`: la domanda di seguito resa autonoma; si cerca anche con quella, ma la domanda scritta resta la principale."""
-    # solo le domande di seguito molto corte ("e cosa dice?") cercano anche con la domanda precedente:
-    # per le altre la domanda precedente porterebbe fuori strada la ricerca
-    breve = len(parole(domanda)) <= 3
+    # solo le domande di seguito ("e cosa dice?", «e lui?») cercano anche con la domanda precedente: per le altre la domanda precedente porterebbe fuori
+    # strada la ricerca. Si decide come per la riscrittura (`sembra_seguito`: parole scritte, congiunzione iniziale, rimandi), NON dalle parole che restano
+    # tolte le parole comuni: «Qual è il percorso del modulo?» ne ha due e prendeva in prestito la domanda di prima (che parlava d'altro).
+    breve = sembra_seguito(domanda)
     query = f'{domanda} {precedenti[-1]["domanda"]}' if precedenti and breve else domanda
     ipotesi = (lambda: risposta_ipotetica(modello, query)) if cfg.HYDE and modello and not demo else None
     q = _norma(domanda)

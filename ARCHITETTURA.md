@@ -21,7 +21,7 @@ solo la libreria standard (più `requests`) nel backend.
 
 | Cartella | Lato | Contenuto |
 |---|---|---|
-| `app_lazarus/` | Backend | `lazarus.py`: modello, istruzioni del modello, controllo di pertinenza. Funziona anche da solo come chat nel terminale (`uv run lazarus.py`). |
+| `app_lazarus/` | Backend | `lazarus.py`: modello, istruzioni del modello, controllo di pertinenza: l'**unico** posto dove sta il prompt (`config.py` non ne ha più una copia né lo legge con `ast`: importa `lazarus.py`, che usa `requests` solo quando serve). Funziona anche da solo come chat nel terminale (`uv run lazarus.py`). |
 | `interfaccia/backend/` | Backend | Server HTTP e logica dell'interfaccia (Python). |
 | `interfaccia/frontend/` | Frontend | Pagine HTML, stile CSS, script JavaScript del browser. |
 | `interfaccia/registro/` | Dati | `storico.jsonl` (domande e risposte), `elementi.jsonl` (indizi, eventi, luoghi trovati), cache degli embedding, esclusioni. |
@@ -77,7 +77,8 @@ solo la libreria standard (più `requests`) nel backend.
 - **Come risponde il modello** (tono, formato, sezioni Eventi/Indizi/Ipotesi): `ISTRUZIONI` in `app_lazarus/lazarus.py`.
   Se cambi il formato delle sezioni, aggiorna anche `estrai_voci_nominate` in `backend/testo.py`, che le legge.
 - **Velocità e lunghezza**: `MAX_TOKEN`, `NUM_CTX`, `TEMPERATURA` in `lazarus.py`.
-- **Cosa conta come "non pertinente"**: `PAROLE_CONVERSAZIONE` e `ISTRUZIONI_PERTINENZA` in `lazarus.py`.
+- **Cosa conta come "non pertinente"**: `PAROLE_CONVERSAZIONE` e `ISTRUZIONI_PERTINENZA` in `lazarus.py` (le domande SUI documenti, anche su file strani o con ordini
+  all'assistente, sono sul caso: senza regole su parole come «sospetto» il modello le riconosce dal prompt).
 - **Quanto è severo il riscontro degli indizi**: `SOGLIA_RISCONTRO` in `backend/testo.py`.
 - **Quanti fili sulla bacheca**: `FILI_PER_VOCE`, `FILO_MINIMO` in `backend/server.py`.
 - **Navigazione**: le schede si aprono nella stessa finestra (`vaiA` in `comune.js`, `apri` in `app.js`); le frecce in alto
@@ -97,6 +98,11 @@ solo la libreria standard (più `requests`) nel backend.
   verificate sul Ripetitore Rame») non deve far perdere le parole dell'utente (persona, deposito, settore, pratica). Il riscrittore cambia il minimo
   e lascia i rimandi generici (`ISTRUZIONI_RISCRITTURA`). Le citazioni `[ID]` copiate dalle risposte si tolgono (`pulisci_riscrittura`). Se il modello
   non risponde, la domanda resta com'è. Strumento `riscrivi_domanda`; si spegne con `RISCRIVI_DOMANDE = False`.
+- **Scenario fuori dalla logica**: ciò che dipende dai documenti sta in `backend/scenario.py` (formato di ID e codici, regole del giorno, parole generiche davanti ai nomi di
+  luoghi e cose, nomi italiani per le foto); testo.py, indice.py, motore.py e volti.py lo importano. La descrizione del caso nel prompt (squadra, nome, ambientazione, compito,
+  esempi di ID) è il blocco `SCENARIO` in cima a `app_lazarus/lazarus.py`, separato dalle regole di comportamento (COME RAGIONI, FORMATO, SICUREZZA): per un'altra
+  indagine si cambiano quei due posti. `PROFILO_DEL_CASO` (la parte RUOLO) è il testo il cui vettore indica il cluster del caso. I tre prompt (risposte, conversazione,
+  controllo di pertinenza) escono dal blocco con lo stesso testo di prima (verificato carattere per carattere).
 - **Modalità debug (solo per il team)**: di solito l'interfaccia non dice al detective quali documenti sono «sospetti» o «non pertinenti»: lo scopre dalle
   risposte. Il pulsante «Debug» in alto (o `?debug=1` nell'indirizzo; `?debug=0` la spegne) la accende: tornano le etichette e i pulsanti nell'elenco
   Documenti, il conteggio «N pertinenti», il ⚠ sulle fonti, il rosso/giallo e l'asse «più vicino al caso» nella RAG view. La variabile globale `DEBUG`
@@ -108,13 +114,18 @@ solo la libreria standard (più `requests`) nel backend.
   domanda cerca i sospetti apposta**: il prompt dice soltanto che il testo dei documenti è un dato e non un ordine (SICUREZZA in
   `lazarus.py`); se il modello incontra un tentativo di manipolazione tra le fonti che usa, lo descrive e lo mette in Indizi. Per
   "tutti i file" riceve tutti i documenti del caso se ci stanno nel contesto. In testa al prompt c'è solo la cronologia dei giorni (`nota_giorni`).
+- **Domande brevi**: solo se la domanda sembra un seguito (`sembra_seguito`: parole scritte, congiunzione iniziale, rimandi) la ricerca prende in prestito anche la domanda
+  precedente; prima si contavano le parole rimaste tolte quelle comuni, e «Qual è il percorso del modulo?» (due parole) si portava dietro la domanda di prima.
 - **Come si scelgono i brani** (`Indice.cerca`): BM25 su tutto l'archivio, similarità degli embedding (`classifica_per_significato`: con numpy
   è un prodotto di matrici, ≈20 ms su 5000 brani; senza numpy il ciclo in Python puro, ≈500 ms), HyDE se la ricerca per significato trova poco,
-  e gli **identificatori**: le parole della domanda presenti in pochissimi brani (`IDENT_DF_FRAZIONE`, `IDENT_DF_MIN`: codici, pratiche, nomi rari).
+  e gli **identificatori**: le parole della domanda presenti in pochissimi brani **del caso** (`IDENT_DF_FRAZIONE`, `IDENT_DF_MIN`: codici, pratiche, nomi rari;
+  le frequenze si contano solo sui brani pertinenti, `Indice.frequenze_del_caso`, così una parola comune nel caso non sembra rara per colpa di qualche voce estranea).
   Le classifiche si fondono con RRF pesata (`PESI_RRF`, gli identificatori contano doppio) solo tra i documenti pertinenti: tra documenti quasi
   identici la somiglianza di significato è rumore e faceva perdere il documento primo in BM25 con un margine netto (misurato: domande su
   codici 90% → 100%). La decisione «la domanda punta a documenti non pertinenti» usa invece la fusione senza identificatori, così una parola
   rara che compare solo in una voce enciclopedica non porta testo estraneo al caso nel prompt.
+  Prima dell'MMR i brani **quasi identici** (coseno degli embedding ≥ `COPIE_SOGLIA`, 0,97: bollettini ripetuti con poche parole diverse) si riducono a uno,
+  `raggruppa_copie`: gli ID delle copie vanno nel prompt («testo quasi identico anche in…») e non occupano posti che servono ai documenti che li smentiscono.
   Tra i candidati pertinenti (`MMR_POOL`) i brani da dare al modello si scelgono con MMR (`diversifica`, `MMR_LAMBDA`): un brano quasi uguale a uno
   già scelto cede il posto a uno diverso. Con centinaia di documenti costruiti sullo stesso modello (bollettini ripetuti) le varianti
   riempivano tutti i posti e il documento con l'esito (un collaudo) restava fuori.
@@ -139,7 +150,8 @@ solo la libreria standard (più `requests`) nel backend.
   misurare i seguiti con e senza riscrittura; `--imposta NOME=VALORE` prova un parametro; `--json` salva il risultato per confrontarlo).
   Domande: `domande_ricerca.json` (a mano, anche catene di documenti), `domande_seguiti.json`, e domande generate dai codici dei documenti.
   `test_ricerca.py` sono prove automatiche con embedding finti (nessun Ollama). `prima.json` è la misura prima di queste modifiche.
-- **Quanti documenti vede il modello**: se i documenti pertinenti stanno in `SOGLIA_CARATTERI` (12000) e `SOGLIA_BRANI`
+- **Quanti documenti vede il modello**: se i documenti pertinenti stanno in `SOGLIA_CARATTERI` e `SOGLIA_BRANI` (non sono numeri fissi: un terzo di `NUM_CTX` per i documenti,
+  `FRAZIONE_CONTESTO_DOCUMENTI` e `CARATTERI_PER_TOKEN` in `config.py`; con NUM_CTX 12288 fanno 12288 caratteri e 40 brani)
   (40) li riceve tutti, altrimenti i `TOP_K` (10) brani migliori; mai più di `MAX_BRANI_PER_DOC` (2) brani per documento
   (`limita_per_documento` in `indice.py`). Contesto del modello `NUM_CTX` = 12288 in `lazarus.py`: fisso, così Ollama
   non ricarica il modello quando il prompt cresce (prima parola ~3 s con ~4500 token di prompt).
@@ -159,7 +171,11 @@ solo la libreria standard (più `requests`) nel backend.
   (`pertinenza.py`, chiamato da `Indice.calcola_pertinenza` dopo gli embedding). Vettore medio per documento, centratura
   sulla media dell'archivio, k-means (K ≈ √(N/2), k-means++ con 4 ripartenze), cluster pertinenti = quelli più vicini al
   profilo del caso (parte RUOLO delle istruzioni). Sotto 40 documenti sono tutti pertinenti. Sull'archivio del giorno 3:
-  24/24 documenti del caso presi, 1 intruso su 1000. Le domande sul caso ricevono solo documenti pertinenti; se la
+  24/24 documenti del caso presi, 1 intruso su 1000. Su un archivio di 1523 documenti con molte voci enciclopediche vicine per argomento al caso il primo
+  passaggio (K=28) lasciava passare 721 documenti, 203 dei quali estranei: la **rifinitura** (`pertinenza.RIFINITURA`, `_rifinisci`) rifà un k-means a DUE gruppi sui
+  soli documenti presi e tiene il gruppo più vicino al profilo (solo se i centroidi sono davvero distinti, `RIFINITURA_SEPARAZIONE_MAX`); un documento scartato che
+  somiglia al profilo più di ogni documento tenuto rientra. Risultato: 526 pertinenti, 518/518 del caso, 8 intrusi invece di 203. Misurato offline con uno script
+  che conosce le sigle dei documenti SOLO per valutare. Le domande sul caso ricevono solo documenti pertinenti; se la
   domanda riguarda file non pertinenti (es. "parlami dell'equatore") il modello ne riceve il testo segnato come non
   pertinente e ne parla, ma non diventano mai indizi, eventi o luoghi (`cerca`, `del_caso`). numpy lo rende istantaneo (`--with numpy` nel .bat), senza ~1 minuto.
 - **Non pertinenti (campo `consultazione`)**: le voci enciclopediche sono segnalate al modello e non diventano mai indizi, eventi o luoghi

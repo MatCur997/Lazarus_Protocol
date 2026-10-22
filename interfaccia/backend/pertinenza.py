@@ -8,16 +8,21 @@ non dall'origine dei file. Nessun filtro su "wikipedia" o sul campo source: funz
 4. Profilo del caso: il vettore (centrato) della descrizione dello scenario nelle istruzioni del modello.
    I cluster pertinenti sono quelli il cui centroide è più vicino al profilo (separati dagli altri con Otsu);
    se così si prenderebbe più di metà archivio, si tiene solo il cluster più vicino.
-5. Archivi piccoli (meno di MINIMO documenti): tutti pertinenti, non c'è niente da separare.
+5. Rifinitura (RIFINITURA): tra i documenti presi si rifà un k-means a DUE gruppi e si tiene il gruppo i cui
+   documenti somigliano di più al profilo. Serve quando il primo passaggio, largo, lascia dentro molti documenti estranei vicini per argomento al
+   caso. Si applica solo se i due gruppi sono davvero distinti (coseno tra i centroidi sotto RIFINITURA_SEPARAZIONE_MAX); altrimenti non fa nulla.
+6. Archivi piccoli (meno di MINIMO documenti): tutti pertinenti, non c'è niente da separare.
 
 Misura sull'archivio della giornata 3 (1024 documenti, 24 del caso): pertinenti 24, del caso presi 24/24,
 intrusi 0 (con K = 20 e 40). Con numpy (se c'è) servono decimi di secondo; senza, Python puro in background."""
 import math
 import random
 
-MINIMO = 40          # sotto questo numero di documenti non si separa nulla
+MINIMO = 40          # sotto questo numero di documenti non si separa nulla (con K ≈ √(N/2) servono almeno una quarantina di punti perché i cluster dicano qualcosa)
 RIPARTENZE = 4       # k-means da più punti di partenza: si tiene la soluzione più compatta
 GIRI_MAX = 50
+RIFINITURA = True                  # secondo passaggio a due gruppi dentro i pertinenti (vedi sopra); False = come prima
+RIFINITURA_SEPARAZIONE_MAX = 0.5   # coseno massimo tra i centroidi dei due gruppi perché la divisione sia accettata
 
 try:
     import numpy as np
@@ -113,6 +118,22 @@ def _mappa_3d(Xc, pc):
     return np.column_stack([x, resto @ vt[0], resto @ vt[1]]).tolist()
 
 
+def _rifinisci(Xc, pc, indici):
+    """Dei documenti `indici` tiene il gruppo, tra due, più vicino al profilo. Il k-means a due gruppi lavora SENZA ricentrare sui presi (ricentrando,
+    il gruppo del caso, molto compatto, e il resto si capovolgono). Se i due gruppi non sono distinti (centroidi troppo simili) tiene tutto.
+    Rete di sicurezza: un documento scartato che somiglia al profilo PIÙ DI OGNI documento tenuto non può essere estraneo, e rientra (un documento
+    del caso scritto diversamente dagli altri, per esempio il testo che dà l'incarico, finirebbe nel gruppo sbagliato)."""
+    sotto = [Xc[j] for j in indici]
+    etichette, centri, _ = min((_kmeans(sotto, 2, seme) for seme in range(RIPARTENZE)), key=lambda r: r[2])
+    if _dot(centri[0], centri[1]) >= RIFINITURA_SEPARAZIONE_MAX:
+        return indici
+    giusto = max((0, 1), key=lambda c: _dot(centri[c], pc))
+    tenuti = [j for j, e in zip(indici, etichette) if e == giusto]
+    migliore = max(_dot(Xc[j], pc) for j in tenuti)
+    ripresi = [j for j, e in zip(indici, etichette) if e != giusto and _dot(Xc[j], pc) > migliore]
+    return sorted(tenuti + ripresi)
+
+
 def pertinenti(vettori_doc, profilo):
     """vettori_doc: {doc_id: vettore}, profilo: vettore della descrizione del caso.
     Ritorna (insieme dei documenti pertinenti, {doc_id: somiglianza al profilo}, dettaglio per il pannello strumenti,
@@ -132,10 +153,17 @@ def pertinenti(vettori_doc, profilo):
     scelti = {c for c in range(K) if vicinanza[c] > otsu(vicinanza)}
     if sum(etichette.count(c) for c in scelti) > n / 2:          # troppo largo: solo il cluster più vicino
         scelti = {max(range(K), key=vicinanza.__getitem__)}
-    presi = {ids[j] for j in range(n) if etichette[j] in scelti}
+    indici = [j for j in range(n) if etichette[j] in scelti]
+    scartati_rifinitura = 0
+    if RIFINITURA and len(indici) >= MINIMO:
+        tenuti = _rifinisci(Xc, pc, indici)
+        scartati_rifinitura = len(indici) - len(tenuti)
+        indici = tenuti
+    presi = {ids[j] for j in indici}
     somiglianza = {ids[j]: _dot(Xc[j], pc) for j in range(n)}
     dettaglio = (f'k-means K={K} su {n} documenti: {len(presi)} pertinenti in {len(scelti)} '
-                 f'cluster vicini al caso, {n - len(presi)} esclusi')
+                 f'cluster vicini al caso, {n - len(presi)} esclusi'
+                 + (f' (di cui {scartati_rifinitura} dalla rifinitura a due gruppi)' if scartati_rifinitura else ''))
     coordinate = _mappa_3d(Xc, pc)
     mappa = {'K': K, 'etichette': {ids[j]: etichette[j] for j in range(n)},
              'cluster': [{'id': c, 'n': etichette.count(c), 'vicinanza': round(vicinanza[c], 3), 'pertinente': c in scelti}

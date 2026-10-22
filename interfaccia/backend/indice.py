@@ -17,6 +17,7 @@ from config import (CARTELLA_CARICATI, CARTELLA_REGISTRO, ESTENSIONI_MARKUP, EST
 from modello import embed
 from pertinenza import pertinenti as raggruppa_pertinenti
 from testo import estrai_nomi, frasi, ms, parole
+from scenario import RE_GIORNO_CARTELLA, RE_GIORNO_TESTO, RE_GIORNO_ID
 
 try:
     import numpy as np
@@ -24,9 +25,6 @@ except Exception:    # numpy assente: la similarità si calcola in Python puro (
     np = None
 
 
-RE_GIORNO_CARTELLA = re.compile(r'giorn[oi]?[ _-]*0*(\d{1,2})(?!\d)', re.I)        # Dati_giorno_2, Imprevisti_giorno_2
-RE_GIORNO_TESTO = re.compile(r'giorno\s+operativo\s+0*(\d{1,2})(?!\d)', re.I)      # "giorno operativo 02"
-RE_GIORNO_ID = re.compile(r'^G(\d{1,2})-\d', re.I)                                 # G2-01
 
 
 def giorno_di(percorso, testo, doc_id, interno=None):
@@ -41,8 +39,11 @@ def giorno_di(percorso, testo, doc_id, interno=None):
 
 
 def profilo_del_caso():
-    """Il testo che descrive l'indagine (la parte RUOLO delle istruzioni): il suo vettore indica quale cluster è il caso."""
+    """Il testo che descrive l'indagine: il suo vettore indica quale cluster è il caso. È `PROFILO_DEL_CASO` di lazarus.py (blocco SCENARIO); solo
+    se la squadra ha messo istruzioni proprie in istruzioni.txt si prende la parte prima di «COME RAGIONI» di quel testo."""
     istruzioni = cfg.istruzioni_correnti()
+    if istruzioni == cfg.LAZARUS.ISTRUZIONI:
+        return cfg.LAZARUS.PROFILO_DEL_CASO
     return istruzioni.split('COME RAGIONI')[0].strip() or istruzioni
 
 # --------------------------------------------------------------------- documenti
@@ -203,6 +204,7 @@ class Indice:
         self.lock = threading.RLock()
         self.documenti = {}      # id -> {id, nome, origine, titolo, testo}
         self.brani = []          # {doc, n, testo, parole, emb}
+        self.df_caso = None      # (frequenze delle parole nei soli brani del caso, quanti sono, lunghezza di `brani`): vedi `frequenze_del_caso`
         self.persone = {}        # nome -> [{doc, frase, contesto}]
         self.alias = {}          # alias -> nome
         self.embedding_attivo = embedding_attivo
@@ -307,6 +309,7 @@ class Indice:
         for b in brani:
             self.df.update(set(b['parole']))
         self.lung_media = (sum(len(b['parole']) for b in brani) / len(brani)) if brani else 1
+        self.df_caso = None             # si ricalcola alla prima ricerca (vedi `frequenze_del_caso`)
         self.brani = brani
         for b in brani:         # embedding già calcolati (cache): la ricerca per significato non aspetta il nuovo calcolo
             b['emb'] = self.cache_emb.get(self._chiave(b['testo'])) if self.embedding_attivo else None
@@ -485,11 +488,25 @@ class Indice:
             self.info_pertinenza = {'dettaglio': dettaglio, 'ms': ms(t), 'pertinenti': len(presi & set(documenti)),
                                     'esclusi': len(set(documenti) - presi)}
             self.mappa_pertinenza = mappa      # cluster e coordinate 2D per la RAG view (None se non c'è clustering)
+            self.df_caso = None                # i brani del caso sono cambiati: le frequenze per gli identificatori si rifanno
         print(f'  Pertinenza: {dettaglio} ({ms(t):.0f} ms)')
 
     @staticmethod
     def _chiave(testo):
         return hashlib.sha1(f'{cfg.MODELLO_EMBEDDING}|{testo}'.encode()).hexdigest()
+
+    def frequenze_del_caso(self, brani):
+        """(in quanti brani del caso compare ogni parola, quanti sono i brani del caso). Gli identificatori si cercano tra i soli brani del caso:
+        contando anche i documenti estranei, una parola comune nel caso («affidabile») compare per caso in pochi brani estranei e sembra rara."""
+        if self.df_caso is None or self.df_caso[2] != len(brani):
+            df = Counter()
+            n_caso = 0
+            for b in brani:
+                if not b['consultazione']:
+                    df.update(set(b['parole']))
+                    n_caso += 1
+            self.df_caso = (df, n_caso, len(brani))
+        return self.df_caso[0], self.df_caso[1]
 
     # -- ricerca
     def cerca(self, domanda, strumenti, ipotesi=None, traccia=None, riscritta=None):
@@ -551,11 +568,13 @@ class Indice:
         # va prima, anche se per significato assomiglia a mille altri brani; a parità, contano il numero di identificatori e il BM25.
         # Si calcolano prima di HyDE: se la domanda ne ha già, HyDE (~2 s) non serve (HYDE_SALTA_CON_IDENTIFICATORI).
         t = time.perf_counter()
-        soglia_df = max(cfg.IDENT_DF_MIN, cfg.IDENT_DF_FRAZIONE * n)
-        rari = sorted({w for w in q if 0 < self.df.get(w, 0) <= soglia_df})
+        # Le frequenze sono quelle dei soli brani del caso: gli identificatori sono parole rare NEL CASO, e solo brani del caso possono contenerle.
+        df_caso, n_caso = self.frequenze_del_caso(brani)
+        soglia_df = max(cfg.IDENT_DF_MIN, cfg.IDENT_DF_FRAZIONE * n_caso)
+        rari = sorted({w for w in q if 0 < df_caso.get(w, 0) <= soglia_df})
         identificatori = []
         if rari:
-            trovati = [(sum(w in brani[i]['freq'] for w in rari), s, i) for s, i in punteggi if s > 0]
+            trovati = [(sum(w in brani[i]['freq'] for w in rari), s, i) for s, i in punteggi if s > 0 and not brani[i]['consultazione']]
             identificatori = [i for k, s, i in sorted((x for x in trovati if x[0]), reverse=True)[:cfg.IDENT_MAX_BRANI]]
             strumenti.append({'nome': 'cerca_identificatori', 'ms': ms(t),
                               'dettaglio': f'{len(identificatori)} brani con {", ".join(rari)}'})
@@ -618,11 +637,14 @@ class Indice:
             punti_scelti = rrf_p = fondi({nome: [i for i in c if i in insieme] for nome, c in classifiche.items()})
             migliori = sorted(rrf_p, key=rrf_p.get, reverse=True) or pertinenti
             candidati = limita_per_documento(migliori, brani)[:max(TOP_K, cfg.MMR_POOL)]
+            candidati, copie_di = raggruppa_copie(candidati, matrice, cfg.COPIE_SOGLIA)   # le varianti quasi identiche non riempiono i posti
             scelti = diversifica(candidati, rrf_p, matrice, cfg.MMR_LAMBDA, TOP_K)
         # se la domanda punta soprattutto a documenti NON pertinenti (es. "cosa dice il file sulle anatre?"),
         # il modello ne riceve anche il contenuto, segnato come non pertinente: può parlarne e citarli,
         # ma non diventano mai indizi, eventi o luoghi (vedi del_caso in server.py e le istruzioni)
         fuori, visti = [], set()
+        if tutti_pertinenti:
+            copie_di = {}
         if classifica and brani[classifica[0]]['consultazione']:
             soglia = rrf[classifica[0]] * 0.8
             for i in classifica:
@@ -654,7 +676,11 @@ class Indice:
                          ('usato, non pertinente' if (brani[i]['doc'], brani[i]['n']) in fuori_set else
                           ('non pertinente' if brani[i]['consultazione'] else 'fuori dai primi'))}
                         for i in classifica[:25]]})
-        return fuori + [fonte_da_brano(brani[i], punti_scelti.get(i, 0)) for i in scelti]
+        fonti = [fonte_da_brano(brani[i], punti_scelti.get(i, 0)) for i in scelti]
+        for i, f in zip(scelti, fonti):
+            if copie_di.get(i):
+                f['copie'] = sorted({brani[c]['doc'] for c in copie_di[i]} - {f['doc']})      # ID delle copie quasi identiche, per il prompt
+        return fuori + fonti
 
     def persone_in(self, testo):
         """Persone citate in un testo, solo se compaiono anche nei documenti (nomi inventati o etichette no)."""
@@ -707,6 +733,24 @@ def diversifica(candidati, punti, matrice, lam, quanti, gia=()):
     return sorted((candidati[k] for k in scelti), key=lambda i: punti.get(i, 0.0), reverse=True)     # l'ordine di lettura resta quello di pertinenza
 
 
+def raggruppa_copie(candidati, matrice, soglia):
+    """(candidati senza le copie, {brano tenuto: [indici delle sue copie]}). Due brani sono copie se il coseno dei loro embedding è almeno `soglia`
+    (bollettini ripetuti con poche parole diverse). Si tiene il primo in ordine di punteggio; le copie non occupano un posto tra le fonti ma restano
+    elencate, così il modello sa che il testo si ripete e può citarne l'ID. Senza embedding o con soglia ≥ 1 non cambia nulla."""
+    if soglia >= 1 or matrice is None or len(candidati) < 2:
+        return candidati, {}
+    vettori = matrice[candidati]
+    somiglianze = vettori @ vettori.T
+    tenuti, copie = [], {}
+    for k, i in enumerate(candidati):
+        madre = next((t for t in tenuti if somiglianze[k, t] >= soglia), None)
+        if madre is None:
+            tenuti.append(k)
+        else:
+            copie.setdefault(candidati[madre], []).append(i)
+    return [candidati[k] for k in tenuti], copie
+
+
 def limita_per_documento(indici, brani, massimo=None):
     """Gli indici dei brani nello stesso ordine, ma al massimo `massimo` (MAX_BRANI_PER_DOC) per documento."""
     massimo = massimo or cfg.MAX_BRANI_PER_DOC
@@ -743,7 +787,8 @@ def contesto_da_fonti(fonti):
         giorno = f'(giorno {f["giorno"]}) ' if f.get('giorno') else ''
         if f.get('solo_titolo') is not None:
             return f'{giorno}{NOTA_CONSULTAZIONE} titolo: «{f["solo_titolo"]}». Contenuto non disponibile.'
-        return giorno + (f'{NOTA_CONSULTAZIONE} ' if f.get('consultazione') else '')
+        copie = f' (testo quasi identico anche in: {", ".join(f["copie"][:8])}{" …" if len(f["copie"]) > 8 else ""}) ' if f.get('copie') else ''
+        return giorno + copie + (f'{NOTA_CONSULTAZIONE} ' if f.get('consultazione') else '')
     return '\n\n'.join(f'[{d}] ' + nota(v[0]) + ' '.join(x['testo'] for x in sorted(v, key=lambda x: x['n']))
                        for d, v in documenti)
 

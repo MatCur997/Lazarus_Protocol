@@ -2,6 +2,7 @@
 import re
 import time
 import unicodedata
+from scenario import PREFISSI_LUOGO, PREFISSI_COSA, PREFISSI_SANTI
 
 # ------------------------------------------------------------------ utilità testo
 STOP = set('''a ad al alla alle allo ai agli all anche ancora che chi ci col come con contro da dal dalla dalle dallo dai
@@ -26,23 +27,7 @@ accettiamo potete parla cosa dove'''.split())
 # riga 6: imperativi delle istruzioni di missione ("Mostrate i file recuperati"), maiuscoli a inizio cella
 # riga 2: etichette delle risposte; righe 3-5: titoli di sezione delle voci enciclopediche ("Biografia Nato a ...")
 
-PREFISSI_LUOGO = set('''via viale piazza piazzale corso largo vicolo ospedale stazione ponte porta chiesa scuola parco
-quartiere zona rifugio settore torre monte fiume lago hotel albergo bar banca caserma palazzo villa cascina borgo
-strada località centro istituto università clinica farmacia laboratorio deposito magazzino ufficio archivio base
-porto aeroporto campo carcere cimitero mercato fabbrica capannone bunker struttura complesso padiglione reparto
-ripetitore ripetitori antenna antenne traliccio cabina centralina impianto stabilimento postazione presidio sede edificio
-varco cancello checkpoint galleria tunnel diga pozzo serbatoio silo hangar molo banchina piattaforma nodo snodo
-svincolo ingresso uscita blocco ala sottostazione'''.split())
-# "Santa Chiara", "San Carlo", "Sant'Anna": nei documenti sono luoghi (laboratori, ospedali, quartieri), non persone
-PREFISSI_SANTI = {'san', 'santa', 'santo', 'santi', 'sant'}
-PREFISSI_LUOGO |= PREFISSI_SANTI
 
-# apparecchi, mezzi, gruppi e documenti: "Generatore Nord", "Squadra Alfa", "Veicolo 3" non sono persone (e nemmeno luoghi).
-# Come PREFISSI_LUOGO valgono solo come PRIMA parola, così un cognome come "Canale" o "Piano" resta una persona.
-PREFISSI_COSA = set('''generatore sensore sensori terminale dispositivo apparato apparecchio trasmettitore ricevitore
-segnale rete frequenza server computer modulo unità veicolo mezzo camion furgone ambulanza elicottero drone convoglio
-treno codice scheda registro rapporto verbale bollettino comunicato allarme allerta operazione missione progetto
-programma squadra gruppo team nucleo pattuglia turno orologio display allegato campione provetta ceppo focolaio'''.split())
 NON_PERSONA_INIZIO = PREFISSI_LUOGO | PREFISSI_COSA
 
 TITOLI = set('''signor signore signora signorina dottor dottore dottoressa dott dr professor professore professoressa

@@ -8,13 +8,8 @@ import threading
 import unicodedata
 
 import config as cfg
+from scenario import MASCHILI_IN_A, FEMMINILI
 
-# Nomi italiani in -a che sono maschili, e nomi in -e/-i/consonante che sono femminili.
-MASCHILI_IN_A = set('''luca andrea nicola mattia elia enea battista gianluca giosuè joshua tobia isaia geremia
-zaccaria ezechiele barnaba noah sasha nikita akira'''.split())
-FEMMINILI = set('''irene beatrice alice adele agnese rachele matilde clarice clotilde cloe chloe ester esther
-miriam ingrid carmen dolores mercedes ruth judith giuditta noemi naomi suzanne marion rosmary rosemary
-kim jennifer ellen helen eleonore ines inès abigail iris nives vivien lilian gwen daphne zoe zoé'''.split())
 TITOLI_F = {'signora', 'signorina', 'dottoressa', 'professoressa', 'ispettrice', 'suor', 'madre', 'sorella', 'zia', 'nonna'}
 TITOLI_M = {'signor', 'signore', 'dottor', 'dottore', 'professor', 'professore', 'don', 'padre', 'fratello', 'zio', 'nonno', 'ispettore'}
 
