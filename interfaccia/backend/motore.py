@@ -28,6 +28,17 @@ def controlla_pertinenza(indice, modello, domanda, strumenti, demo=False):
     return conversazione
 
 
+def pertinenza_col_modello(indice, domanda, demo=False):
+    """Vero se `controlla_pertinenza` dovrà chiamare il modello (~1,7 s) perché le regole non bastano: solo allora conviene fare la
+    ricerca in parallelo (con le regole il controllo costa pochi millisecondi)."""
+    regole = getattr(cfg.LAZARUS, 'classifica_con_regole', None)
+    if demo or not regole:
+        return False
+    with indice.lock:
+        nomi = list(indice.persone) + list(indice.alias)
+    return regole(domanda, nomi) is None
+
+
 # Ricerca a salti: pratica -> lotto -> armadio sono in documenti diversi e la domanda nomina solo il primo anello.
 # Dai documenti migliori si prendono i codici (M462, K491...) e si cercano come parola intera: "M462" non è "M462-050".
 RE_CODICE = re.compile(r'(?<![\w-])([A-Z]{1,4}-?\d{2,5})(?![\w]|-\d)')

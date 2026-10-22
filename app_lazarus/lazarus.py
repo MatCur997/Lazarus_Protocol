@@ -123,6 +123,16 @@ def prepara_richiesta(corpo):
     return corpo
 
 
+def classifica_con_regole(domanda, nomi=()):
+    """(conversazione, motivo) se bastano le regole, None se serve il modello (chiamata lenta: ~1,7 s)."""
+    if e_conversazione(domanda):
+        return True, "saluto o cortesia (regole)"
+    minuscolo = domanda.lower()
+    if RE_ID_DOC.search(domanda) or any(len(n) > 3 and n.lower() in minuscolo for n in nomi):
+        return False, "cita un documento o una persona (regole)"
+    return None
+
+
 def classifica_domanda(domanda, modello=None, titoli=(), nomi=()):
     """Decide PRIMA di leggere i documenti se il messaggio riguarda il caso.
     Ritorna (conversazione, motivo). Dal più economico al più costoso:
@@ -130,11 +140,9 @@ def classifica_domanda(domanda, modello=None, titoli=(), nomi=()):
       2. cita l'ID di un documento o una persona dei documenti -> caso
       3. il modello, con un prompt corto (solo i titoli dei documenti) -> CASO / ALTRO
     Se il controllo col modello fallisce si cercano i documenti: meglio lenti che senza fonti."""
-    if e_conversazione(domanda):
-        return True, "saluto o cortesia (regole)"
-    minuscolo = domanda.lower()
-    if RE_ID_DOC.search(domanda) or any(len(n) > 3 and n.lower() in minuscolo for n in nomi):
-        return False, "cita un documento o una persona (regole)"
+    con_regole = classifica_con_regole(domanda, nomi)
+    if con_regole:
+        return con_regole
     elenco = "\n".join(f"- {t}" for t in list(titoli)[:MAX_TITOLI_PERTINENZA])
     sistema = ISTRUZIONI_PERTINENZA + (f"\nDocumenti:\n{elenco}" if elenco else "")
     try:

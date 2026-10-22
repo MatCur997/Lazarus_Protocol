@@ -30,6 +30,7 @@ import uuid
 import webbrowser
 import zipfile
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -556,6 +557,7 @@ class Gestore(BaseHTTPRequestHandler):
 
         t0 = time.perf_counter()
         strumenti = []
+        ricerca = None              # ricerca già partita in parallelo al controllo di pertinenza (vedi sotto)
         diretta = motore.domanda_sulla_chat(domanda, cronologia)   # "cosa ti ho appena chiesto?": niente modello
         riassunto = False
         # seguito («e lui?»): la domanda si rende autonoma prima di pertinenza, ricerca e risposta; nello storico resta quella scritta
@@ -570,10 +572,21 @@ class Gestore(BaseHTTPRequestHandler):
             strumenti.append({'nome': 'controlla_pertinenza', 'ms': ms(t0),
                               'dettaglio': 'domanda sui documenti (sospetti o estranei) · regole'})
         else:
+            if cfg.PERTINENZA_IN_PARALLELO and motore.pertinenza_col_modello(INDICE, domanda_ricerca, STATO['demo']):
+                # il controllo chiama il modello (~1,7 s): intanto la ricerca lavora per conto suo (BM25, embedding, salti)
+                strumenti_ricerca = []
+                pool = ThreadPoolExecutor(max_workers=1)
+                ricerca = pool.submit(motore.cerca_fonti, INDICE, domanda, precedenti, strumenti_ricerca, modello, STATO['demo'],
+                                      riscritta=domanda_ricerca if domanda_ricerca != domanda else None)
+                pool.shutdown(wait=False)       # il thread finisce da solo; se la domanda non è sul caso il risultato non si legge
             conversazione = motore.controlla_pertinenza(INDICE, modello, domanda_ricerca, strumenti, STATO['demo'])
             riassunto = conversazione and bool(motore.RE_RIASSUNTO.search(motore._norma(domanda)))
-        fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, precedenti, strumenti, modello, STATO['demo'],
-                                                            riscritta=domanda_ricerca if domanda_ricerca != domanda else None)
+        if ricerca and not conversazione:
+            fonti = ricerca.result()
+            strumenti += strumenti_ricerca
+        else:
+            fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, precedenti, strumenti, modello, STATO['demo'],
+                                                                riscritta=domanda_ricerca if domanda_ricerca != domanda else None)
         ricerca_ms = ms(t0)
         for s in strumenti:
             invia({'tipo': 'strumento', **s})
