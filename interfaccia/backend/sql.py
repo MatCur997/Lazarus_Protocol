@@ -9,6 +9,7 @@ qualunque scrittura, e il risultato torna al modello che risponde citando le fon
   di effetto, stati. Il modello sceglie le righe, il calcolo delle date non lo fa lui;
 - piano a passi per le domande risolutive (terminali, permessi, persone, finestre e chiavi), con gli esclusi."""
 import csv
+import hashlib
 import json
 import re
 import sqlite3
@@ -27,7 +28,9 @@ MAX_RIGHE_PASSO = 300   # un passo del piano deve vedere TUTTI i candidati (pers
 MAX_RISPOSTA = 10        # righe di un elenco SENZA filtri: oltre è un'estrazione in blocco, non un'indagine
 FUNZIONI_PERMESSE = {'count', 'min', 'max', 'lower', 'upper', 'length', 'coalesce', 'sum', 'avg', 'trim', 'substr',
                      'replace', 'date', 'datetime', 'ifnull', 'abs', 'round', 'instr', 'like', 'group_concat',
-                     'strftime', 'julianday', 'iif', 'nullif', 'typeof', 'total'}
+                     'strftime', 'julianday', 'iif', 'nullif', 'typeof', 'total',
+                     # di sola lettura anche queste: senza, GLOB, rtrim o time() erano rifiutati come se fossero scritture
+                     'glob', 'ltrim', 'rtrim', 'printf', 'format', 'time', 'unixepoch', 'char', 'unicode', 'hex'}
 # domande che chiedono di cambiare i DATI: il database è in sola lettura, si risponde senza proporre SQL.
 # Serve un oggetto (database, tabella, permesso...): "la centrale ha aggiornato i parametri" non è una scrittura.
 RE_SCRITTURA = re.compile(
@@ -48,7 +51,7 @@ def chiede_di_scrivere(domanda):
     return False
 
 
-RE_ORDINE_ARBITRARIO = re.compile(r'\border\s+by\b[^;]*\blimit\s+1\b', re.I | re.S)
+RE_ORDINE_ARBITRARIO = re.compile(r'\border\s+by\b[^;]*\blimit\s+(?:0\s*,\s*)?1\b', re.I | re.S)    # anche LIMIT 0, 1
 RE_MAPPA = re.compile(r'\b(mappa|dizionario|struttura|schema)\b.{0,30}\b(tabell\w*|database|dati|archivio)\b'
                       r'|\b(tabell\w*)\b.{0,20}\b(significat\w*|relazion\w*|collegament\w*)\b'
                       # "quali tabelle ci sono nel database?", "elenco delle tabelle": la risposta è lo schema, non una query sui dati
@@ -248,7 +251,8 @@ def interroga_database(query, percorso, massimo=MAX_RIGHE):
         if azione == sqlite3.SQLITE_SELECT:
             return sqlite3.SQLITE_OK
         if azione == sqlite3.SQLITE_READ:
-            if arg1 in tabelle:
+            # db None: tabella definita dalla query stessa (WITH RECURSIVE n ...), non salvata nel database
+            if arg1 in tabelle or db is None:
                 return sqlite3.SQLITE_OK
             negati.append(f'la tabella {arg1} non è leggibile (tabelle: {", ".join(sorted(tabelle))})')
             return sqlite3.SQLITE_DENY
@@ -271,10 +275,14 @@ def interroga_database(query, percorso, massimo=MAX_RIGHE):
     con.set_progress_handler(limite, 1000)
     try:
         cursore = con.execute(query)
+        if cursore.description is None:      # solo commenti o ';': prima description None faceva cadere tutto il tool
+            return {'errore': 'nessuna SELECT da eseguire: scrivi una query SELECT'}
         righe = cursore.fetchmany(massimo + 1)
         return {'colonne': [x[0] for x in cursore.description], 'righe': [list(r) for r in righe[:massimo]],
                 'altre_righe': len(righe) > massimo}
     except (sqlite3.Error, sqlite3.Warning) as e:
+        if passi > 5000:
+            negati.append('query troppo pesante, interrotta: restringi con WHERE e collega le tabelle con i COLLEGAMENTI dello schema')
         motivi = list(dict.fromkeys(negati))
         return {'errore': str(e) + (f' ({"; ".join(motivi)})' if motivi else '')}
     finally:
@@ -284,6 +292,7 @@ def interroga_database(query, percorso, massimo=MAX_RIGHE):
 # ------------------------------------------------------------------ valori della query che il database non contiene
 _CACHE_VALORI_DB = {}
 RE_LETTERALE = re.compile(r"'((?:[^']|'')*)'")
+RE_MODELLO = re.compile(r'\b(like|glob)\s*$', re.I)
 
 
 def valori_del_database(percorso, massimo_per_colonna=20000):
@@ -306,12 +315,14 @@ def valori_del_database(percorso, massimo_per_colonna=20000):
 
 def valori_assenti(query, percorso):
     """I valori tra apici della query che non compaiono in nessuna colonna del database (né in maiuscolo né in minuscolo). Le date si
-    confrontano con < e >, i modelli di LIKE hanno % e _: quelli non contano. «PX9999» assente = 0 righe è la risposta giusta, non un errore."""
+    confrontano con < e >, i modelli di LIKE e GLOB hanno jolly: quelli non contano. «PX9999» assente = 0 righe è la risposta giusta, non un errore.
+    Il trattino basso conta fuori da LIKE: prima 'FUORI_SERVIZO' (sbagliato) non veniva segnalato perché conteneva '_'."""
+    query = query or ''
     valori = valori_del_database(percorso)
     assenti = []
-    for v in RE_LETTERALE.findall(query or ''):
-        v = v.replace("''", "'")
-        if len(v) < 2 or RE_DATA.match(v) or '%' in v or '_' in v:
+    for m in RE_LETTERALE.finditer(query):
+        v = m[1].replace("''", "'")
+        if len(v) < 2 or RE_DATA.match(v) or RE_MODELLO.search(query[:m.start()]):
             continue
         if v.lower() not in valori:
             assenti.append(v)
@@ -347,7 +358,8 @@ def database_da_csv(csv_tabelle, destinazione):
     Un campo vuoto è NULL. La prima colonna intera con
     valori tutti diversi (k0, id) è la chiave primaria: così il profilo deduce le relazioni come sul database originale."""
     destinazione = Path(destinazione)
-    firma = json.dumps(sorted((n, len(r), hash(json.dumps(r))) for n, (_, r) in csv_tabelle.items()))
+    # sha1 e non hash(): hash() delle stringhe cambia a ogni avvio di Python, e il database veniva ricostruito a ogni riavvio
+    firma = hashlib.sha1(json.dumps(sorted(csv_tabelle.items()), ensure_ascii=False).encode('utf-8')).hexdigest()
     file_firma = destinazione.with_suffix('.firma')
     if destinazione.exists() and file_firma.exists() and file_firma.read_text(encoding='utf-8') == firma:
         return destinazione
@@ -378,7 +390,10 @@ def database_da_csv(csv_tabelle, destinazione):
     return destinazione
 
 
-RE_ALIAS = re.compile(r'\b(?:from|join)\s+"?(\w+)"?(?:\s+(?:as\s+)?(?!on\b|where\b|join\b|left\b|inner\b|group\b|order\b|limit\b)(\w+))?', re.I)
+# anche "FROM r08 p, e10 r": con le tabelle separate da virgola gli alias non si vedevano e la JOIN sbagliata passava.
+# Le virgole dell'elenco di colonne non fanno danni: "p.k0" o "v1" non sono nomi di tabella.
+RE_ALIAS = re.compile(r'(?:\b(?:from|join)\s+|,\s*)"?(\w+)"?(?:\s+(?:as\s+)?(?!(?:on|using|where|join|left|right|full|inner|outer|'
+                      r'cross|natural|group|order|limit|union|except|intersect|having|window)\b)(\w+))?', re.I)
 RE_UGUALE = re.compile(r'\b(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)\b')
 
 
@@ -444,8 +459,24 @@ NEGATIVI = ('sosp', 'revoc', 'rev_', 'blocc')     # intervalli/eventi che ESCLUD
 STATI_VALIDI = {'attivo', 'operativo', 'ok', 'valido'}
 
 
+def _data(x):
+    """Data confrontabile come testo: '2026-11-04T12:00' e '2026-11-04 12:00:00' diventano '2026-11-04 12:00:00'. Senza, una
+    data con i secondi era «dopo» la stessa senza secondi: un intervallo che inizia all'istante esatto risultava non ancora valido."""
+    s = str(x).strip().replace('T', ' ')
+    return s + ':00' if len(s) == 16 else s
+
+
 def _attivo(inizio, fine, t):
-    return inizio is not None and str(inizio) <= t and (fine is None or t < str(fine))
+    return inizio is not None and _data(inizio) <= _data(t) and (fine is None or _data(t) < _data(fine))
+
+
+def _efficace(effetto, t):
+    return effetto is not None and _data(effetto) <= _data(t)
+
+
+def _canale(x):
+    """'Canale Delta' e 'Delta' sono lo stesso canale."""
+    return re.sub(r'^canale\s+', '', str(x).strip(), flags=re.I).lower()
 
 
 def annota(colonne, righe, parametri, completo=False):
@@ -480,12 +511,12 @@ def annota(colonne, righe, parametri, completo=False):
             elif not _attivo(ini, fin, t):
                 motivi.append(f'{p} non valido a {t} ({ini} → {fin or "senza fine"})')
         for e in eventi:
-            if v.get(e) is not None and str(v[e]) <= t:
+            if _efficace(v.get(e), t):
                 motivi.append(f'{e[:-8]} efficace dal {v[e]}')
         for s in stati:
             if v.get(s) is not None and str(v[s]).lower() not in STATI_VALIDI:
                 motivi.append(f'{s} {v[s]}')
-        if canale and 'canale' in v and v['canale'] is not None and str(v['canale']).lower() != canale.lower():
+        if canale and 'canale' in v and v['canale'] is not None and _canale(v['canale']) != _canale(canale):
             motivi.append(f'canale {v["canale"]} diverso da {canale}')
         nuove.append(list(r) + ['VALIDO' if not motivi else 'ESCLUSO: ' + '; '.join(motivi)])
     return list(colonne) + ['esito'], nuove
@@ -497,7 +528,7 @@ def _bloccata(r, t):
     for k, v in r.items():
         if k.endswith('_inizio') and k[:-7].startswith(NEGATIVI) and _attivo(v, r.get(k[:-7] + '_fine'), t):
             return True
-        if k.endswith('_effetto') and v is not None and str(v) <= t:
+        if k.endswith('_effetto') and _efficace(v, t):
             return True
     return False
 
@@ -575,15 +606,15 @@ def sintesi_varco(passi, m):
         motivi = []
         for ruolo in ruoli:
             if ruolo not in per_squadra.get((s, nome), set()):
-                del_ruolo = [str(revocati.get(r.get('permesso'), r).get('esito'))[9:] for r in rr
-                             if str(r.get('ruolo')).upper() == ruolo]
+                del_ruolo = list(dict.fromkeys(str(revocati.get(r.get('permesso'), r).get('esito'))[9:] for r in rr
+                                               if str(r.get('ruolo')).upper() == ruolo))
                 motivi.append(f'permesso {ruolo} non valido ({"; ".join(del_ruolo) or "nessun permesso"})')
         if not motivi:
             a, b = persone.get((s, ruoli[0]), {}), persone.get((s, ruoli[1]), {})
             for ruolo, validi in ((ruoli[0], a), (ruoli[1], b)):
                 if not validi:
                     motivi.append(f'nessun {ruolo} valido ('
-                                  + ('; '.join(esclusi.get((s, ruolo), [])) or 'nessun membro con questo ruolo') + ')')
+                                  + ('; '.join(dict.fromkeys(esclusi.get((s, ruolo), []))) or 'nessun membro con questo ruolo') + ')')
             if a and b and not any(x != y for x in a for y in b):
                 motivi.append(f'{next(iter(a.values()))} ha entrambi i ruoli ma è una sola persona: ne servono due diverse')
         spiegazioni.append(f'{nome or s}: ' + ('VALIDA' if not motivi else 'NO, ' + ' | '.join(motivi)))
@@ -725,10 +756,20 @@ def copia_di_sicurezza(percorso):
     return dest
 
 
+def scrittura_vietata(query):
+    """Perché l'istruzione non si esegue, o None. UPDATE e DELETE senza WHERE cambierebbero TUTTA la tabella: chi lo vuole
+    davvero lo scrive (WHERE 1 = 1)."""
+    if not RE_SQL_SCRITTURA.match(query or ''):
+        return 'serve una sola istruzione INSERT, UPDATE o DELETE'
+    if re.match(r'\s*(update|delete)\b', query, re.I) and not re.search(r'\bwhere\b', query, re.I):
+        return 'UPDATE e DELETE senza WHERE cambierebbero tutta la tabella: restringi con una WHERE precisa'
+    return None
+
+
 def modifica_database(query, percorso):
     """Esegue UNA istruzione di modifica. Ritorna {righe_modificate} oppure {errore}."""
-    if not RE_SQL_SCRITTURA.match(query or ''):
-        return {'errore': 'serve una sola istruzione INSERT, UPDATE o DELETE'}
+    if vietata := scrittura_vietata(query):
+        return {'errore': vietata}
     if not Path(percorso).is_file():
         return {'errore': 'Carica il database della squadra.'}
     tabelle = set(descrivi(percorso)['tabelle'])
@@ -781,7 +822,7 @@ def scrivi_nel_database(modello, richiesta, percorso, m=None):
             esito = {'errore': f'il modello non ha prodotto SQL valido ({e})'}
             tentativi.append({'sql': '', 'errore': esito['errore']})
             continue
-        if backup is None and RE_SQL_SCRITTURA.match(query):
+        if backup is None and not scrittura_vietata(query):      # niente copie per istruzioni che non si eseguono
             backup = copia_di_sicurezza(percorso)
         esito = modifica_database(query, percorso)
         tentativi.append({'sql': query, 'errore': esito.get('errore')})
