@@ -39,6 +39,11 @@ TEMPERATURA = 0.5  # 0 = sempre le stesse parole dei documenti; più alto = rifo
 # False = Ollama riusa la parte di prompt uguale alla richiesta precedente (istruzioni, e i documenti se sono gli stessi): più veloce, ma con
 # gemma a volte riprendeva uno stato sbagliato (il modello perdeva il ruolo o citava la domanda prima). Provarlo e confrontare le risposte.
 ISOLA_RICHIESTE = True
+# Con ISOLA_RICHIESTE il codice casuale va in FONDO alle istruzioni invece che in testa: Ollama può riusare le istruzioni (uguali a ogni domanda,
+# ~1500 token non rielaborati) ma nulla dopo, quindi mai i documenti o la domanda precedente (il riuso che faceva perdere il ruolo a gemma).
+# Il guadagno c'è quando due richieste di fila hanno le stesse istruzioni (es. due risposte senza controllo col modello né HyDE in mezzo), o
+# sempre con OLLAMA_NUM_PARALLEL >= 2. DA VERIFICARE A MANO con gemma: se ricompaiono risposte fuori ruolo, rimetti False (codice in testa).
+ISOLA_SOLO_DOPO_ISTRUZIONI = True
 QUI = Path(__file__).resolve().parent
 FILE_ISTRUZIONI = QUI / "istruzioni.txt"
 
@@ -139,7 +144,9 @@ def prepara_richiesta(corpo):
        del prompt, cioè proprio le istruzioni del ruolo. Se serve, per questa domanda si usa un contesto più grande."""
     messaggi = corpo["messages"]
     if ISOLA_RICHIESTE and messaggi and messaggi[0]["role"] == "system":
-        messaggi[0] = {**messaggi[0], "content": f"[richiesta {secrets.token_hex(3)}]\n{messaggi[0]['content']}"}
+        codice = f"[richiesta {secrets.token_hex(3)}]"
+        testo = messaggi[0]['content']
+        messaggi[0] = {**messaggi[0], "content": f"{testo}\n{codice}" if ISOLA_SOLO_DOPO_ISTRUZIONI else f"{codice}\n{testo}"}
     opzioni = corpo.setdefault("options", {})
     contesto = opzioni.get("num_ctx", NUM_CTX)
     # ~2,5 caratteri per token, + marcatori. Misurato con gemma: prosa ~3,1-3,5, ma ID e codici (LX4-1030, RT-4044) solo ~1,3: con 3 la stima era
@@ -156,7 +163,9 @@ def classifica_con_regole(domanda, nomi=()):
     if e_conversazione(domanda):
         return True, "saluto o cortesia (regole)"
     minuscolo = domanda.lower()
-    if RE_ID_DOC.search(domanda) or any(len(n) > 3 and n.lower() in minuscolo for n in nomi):
+    # il nome come parola intera: «Rame» non deve scattare dentro «rametto» (il controllo veloce in C scarta prima quasi tutti i nomi)
+    if RE_ID_DOC.search(domanda) or any(len(n) > 3 and n.lower() in minuscolo
+                                        and re.search(rf"(?<!\w){re.escape(n.lower())}(?!\w)", minuscolo) for n in nomi):
         return False, "cita un documento o una persona (regole)"
     return None
 
@@ -175,7 +184,8 @@ def classifica_domanda(domanda, modello=None, titoli=(), nomi=()):
     sistema = ISTRUZIONI_PERTINENZA + (f"\nDocumenti:\n{elenco}" if elenco else "")
     try:
         r = _http().post(f"{Config.ollama}/api/chat", json=prepara_richiesta({
-            "model": modello or Config.modello, "stream": False, "think": False, "keep_alive": "30m",
+            # keep_alive come le chiamate dell'interfaccia (-1): "30m" qui riportava a 30 minuti la permanenza del modello in memoria
+            "model": modello or Config.modello, "stream": False, "think": False, "keep_alive": -1,
             "messages": [{"role": "system", "content": sistema}, {"role": "user", "content": domanda}],
             # stesso num_ctx delle risposte: un valore diverso farebbe ricaricare il modello
             "options": {"temperature": 0, "num_predict": 3, "num_ctx": NUM_CTX}}), timeout=300)

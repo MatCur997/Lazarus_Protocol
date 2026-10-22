@@ -63,6 +63,27 @@ class IndiceDiProva(unittest.TestCase):
         self.indice.cerca('rapporto di routine', senza)
         self.assertNotIn('cerca_identificatori', [s['nome'] for s in senza])
 
+    def escludi_k01(self):
+        with self.indice.lock:
+            self.indice.documenti['K01']['consultazione'] = True
+            for b in self.indice.brani:
+                b['consultazione'] = b['doc'] == 'K01'
+            self.indice.df_caso = None
+
+    def test_codice_raro_recupera_un_documento_escluso(self):
+        self.indice.calcola_embedding()
+        self.escludi_k01()              # il clustering ha sbagliato: K01 è tra gli estranei
+        strumenti = []
+        fonti = self.indice.cerca('Cosa risulta su ZK-7731?', strumenti)
+        k01 = [f for f in fonti if f['doc'] == 'K01']
+        self.assertTrue(k01 and k01[0].get('recuperato') and not k01[0]['consultazione'])
+
+    def test_ricarica_tiene_la_pertinenza_dei_documenti_gia_visti(self):
+        self.escludi_k01()
+        self.indice.ricarica()          # come dopo un caricamento: il clustering nuovo non è ancora finito
+        self.assertTrue(self.indice.documenti['K01']['consultazione'])
+        self.assertTrue(all(b['consultazione'] for b in self.indice.brani if b['doc'] == 'K01'))
+
     def test_embedding_parziali_e_cache_a_gruppi(self):
         self.indice.GRUPPO_EMBEDDING, self.indice.SALVA_OGNI = 8, 2
         chiamate = []
@@ -201,7 +222,8 @@ class GiorniEMmrTest(unittest.TestCase):
         casi = {'cosa è successo fino al giorno 2 compreso?': {1, 2}, 'cosa è successo fino al giorno 2 escluso?': {1},
                 'entro il giorno 3 cosa è successo?': {1, 2, 3}, 'riassumi i primi due giorni': {1, 2},
                 'cosa è successo dal primo al terzo giorno?': {1, 2, 3}, 'cosa è successo il giorno 2?': {2},
-                'cosa è successo il primo e il terzo giorno?': {1, 3}, 'chi è Luca Serra?': set()}
+                'cosa è successo il primo e il terzo giorno?': {1, 3}, 'chi è Luca Serra?': set(),
+                'cosa è successo il giorno 2 alle 14?': {2}, 'il giorno 3 alle 14:30 chi era al varco?': {3}}
         for domanda, atteso in casi.items():
             self.assertEqual(motore.giorni_chiesti(domanda), atteso, domanda)
 

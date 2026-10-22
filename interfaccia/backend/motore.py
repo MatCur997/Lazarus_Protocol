@@ -11,7 +11,7 @@ import time
 import unicodedata
 
 import config as cfg
-from indice import contesto_da_fonti, diversifica, fonte_da_brano, limita_per_documento, np, tutto_nel_contesto
+from indice import contesto_da_fonti, diversifica, fonte_da_brano, np, tutto_nel_contesto
 from modello import embed, genera_demo, genera_ollama, risposta_ipotetica, riscrivi_con_modello
 from testo import PREFISSI_COSA, PREFISSI_LUOGO, estrai_luoghi, estrai_nomi, ms, parole
 from scenario import RE_CODICE, RE_ID_DOCUMENTO
@@ -21,7 +21,9 @@ def controlla_pertinenza(indice, modello, domanda, strumenti, demo=False):
     """Vero se il messaggio non riguarda il caso: in quel caso non si cercano fonti e si conversa liberamente."""
     t = time.perf_counter()
     with indice.lock:
-        titoli = [f"{d['id']}: {d.get('titolo', '')}" for d in indice.documenti.values()]
+        # solo i titoli dei documenti del caso: il controllo ne vede pochi (MAX_TITOLI_PERTINENZA) e, in ordine di nome, con mille voci estranee
+        # sarebbero tutti estranei (il modello giudicherebbe «sul caso» una domanda sull'equatore perché vede la voce «Equatore»)
+        titoli = [f"{d['id']}: {d.get('titolo', '')}" for d in indice.documenti.values() if not d.get('consultazione')]
         nomi = list(indice.persone) + list(indice.alias)
     # Dopo le regole e prima del modello (~1,7 s): una domanda molto simile ai brani del caso è sul caso, senza chiedere al modello.
     # Solo in questa direzione: se la somiglianza è bassa decide il modello come prima, quindi non si scambia mai una domanda sul caso per estranea.
@@ -90,39 +92,61 @@ def entita_in(testo):
 def segui_riferimenti(fonti, caso, strumenti, indice=None, domanda=None):
     """Aggiunge ai brani trovati quelli che contengono, come codice esatto o come nome raro di persona o di luogo (ENTITA_MAX_BRANI), i
     riferimenti dei brani migliori (al massimo MAX_BRANI_AGGIUNTI).
-    Con gli embedding, tra i brani che contengono il codice si scelgono quelli più pertinenti alla domanda e DIVERSI da ciò che è già tra le
-    fonti (MMR, `diversifica`): un codice comune a centinaia di bollettini quasi uguali porta il documento che dice qualcosa di nuovo
-    (un esito, un collaudo), non altre varianti. Senza embedding si prendono i primi brani in ordine di archivio e un codice già presente in
-    più di MAX_CITAZIONI_GIA_TROVATE brani delle fonti non si segue (è già ben coperto)."""
+    Con l'indice, codici e nomi si cercano negli indici invertiti costruiti al caricamento (`Indice.indice_codici`, `Indice.brani_con_nome`)
+    invece di scorrere tutti i brani a ogni salto. Un codice RARO porta anche ai brani che il clustering ha escluso: un documento del caso scritto
+    diversamente dagli altri può finire tra gli estranei, ma se ha la stessa pratica è un anello della catena (per questa risposta vale come caso).
+    Con gli embedding, tra i brani che contengono il codice si scelgono quelli più vicini alla domanda E al brano da cui parte il salto, e DIVERSI
+    da ciò che è già tra le fonti (MMR, `diversifica`): il documento «ponte» di una catena spesso non somiglia alla domanda, ma al brano che lo cita.
+    Senza embedding si prendono i primi brani in ordine di archivio e un codice già presente in più di MAX_CITAZIONI_GIA_TROVATE brani delle fonti
+    non si segue (è già ben coperto)."""
     t = time.perf_counter()
     brani_indice, matrice, posizioni, vettore = None, None, {}, None
-    if indice is not None and domanda and cfg.MMR_LAMBDA < 1:
+    codici_idx, per_nome = None, None
+    if indice is not None:
         with indice.lock:
             brani_indice, matrice = indice.brani, indice.matrice
-        if matrice is not None and len(matrice) == len(brani_indice):
-            try:
-                vettore = np.asarray(embed([domanda])[0], dtype=np.float32)
-                vettore = vettore / (np.linalg.norm(vettore) or 1.0)
-                posizioni = {(b['doc'], b['n']): i for i, b in enumerate(brani_indice)}
-            except Exception:         # Ollama non risponde: si procede come senza embedding
-                matrice = None
-        else:
+            codici_idx = getattr(indice, 'indice_codici', None)
+        per_nome = getattr(indice, 'brani_con_nome', None)
+        posizioni = {(b['doc'], b['n']): i for i, b in enumerate(brani_indice)}
+    if matrice is not None and domanda and cfg.MMR_LAMBDA < 1 and len(matrice) == len(brani_indice):
+        try:
+            vettore = np.asarray(embed([domanda])[0], dtype=np.float32)
+            vettore = vettore / (np.linalg.norm(vettore) or 1.0)
+        except Exception:         # Ollama non risponde: si procede come senza embedding
             matrice = None
+    else:
+        matrice = None
     presenti = {(f['doc'], f['n']) for f in fonti}
     seguiti, scartati, aggiunti, partenza = set(), set(), [], [f for f in fonti if not f['consultazione']]    # scartati: già coperti o troppo comuni, non contano nel limite dei legami
     partenza = sorted(partenza, key=lambda f: f['punteggio'], reverse=True)[:FONTI_DI_PARTENZA]
 
-    def scegli(trovati, quanti):
-        """I `quanti` brani migliori tra quelli che contengono il codice."""
+    def scegli(trovati, quanti, origine):
+        """I `quanti` brani migliori tra quelli che contengono il codice: vicini alla domanda e al brano `origine` da cui parte il salto."""
         indici = [posizioni[(b['doc'], b['n'])] for b in trovati if (b['doc'], b['n']) in posizioni]
         if matrice is None or len(indici) <= quanti:
             return trovati[:quanti]
-        rilevanza = matrice[indici] @ vettore
+        guida = vettore
+        k = posizioni.get((origine['doc'], origine['n']))
+        if k is not None and presenti_emb(k):
+            guida = vettore + matrice[k]
+            guida = guida / (np.linalg.norm(guida) or 1.0)
+        rilevanza = matrice[indici] @ guida
         ordine = np.argsort(-rilevanza, kind='stable')
         punti = {indici[k]: float(rilevanza[k]) for k in ordine}
         indici = [indici[k] for k in ordine]
         gia = [posizioni[k] for k in presenti if k in posizioni]
         return [brani_indice[i] for i in diversifica(indici, punti, matrice, cfg.MMR_LAMBDA, quanti, gia)]
+
+    def presenti_emb(k):
+        return bool(np.any(matrice[k]))
+
+    def contengono_codice(c):
+        """Brani con il codice: dall'indice (anche esclusi dal clustering, se il codice è raro), altrimenti None (si scorre `caso`)."""
+        if codici_idx is None:
+            return None
+        dove = codici_idx.get(c, [])
+        raro = len(dove) <= ENTITA_MAX_BRANI
+        return [brani_indice[i] for i in dove if not brani_indice[i]['consultazione'] or (raro and cfg.RECUPERA_CON_CODICI)]
 
     for _ in range(SALTI):
         nuovi = []
@@ -139,10 +163,13 @@ def segui_riferimenti(fonti, caso, strumenti, indice=None, domanda=None):
                     if matrice is None and sum(bool(esatto.search(x['testo'])) for x in fonti) > MAX_CITAZIONI_GIA_TROVATE:
                         scartati.add(c)
                         continue
-                    contengono = None
+                    contengono = contengono_codice(c)
                 else:
-                    esatto = re.compile(rf'(?<![\w]){re.escape(c)}(?![\w])', re.I)
-                    contengono = [b for b in caso if esatto.search(b['testo'])]
+                    if per_nome is not None:
+                        contengono = [brani_indice[i] for i in per_nome(c, brani_indice) if not brani_indice[i]['consultazione']]
+                    else:
+                        esatto = re.compile(rf'(?<![\w]){re.escape(c)}(?![\w])', re.I)
+                        contengono = [b for b in caso if esatto.search(b['testo'])]
                     if len(contengono) > ENTITA_MAX_BRANI:           # nome comune: collega tutto con tutto, non è un legame
                         scartati.add(c)
                         continue
@@ -151,9 +178,12 @@ def segui_riferimenti(fonti, caso, strumenti, indice=None, domanda=None):
                 if not trovati:
                     continue
                 seguiti.add(c)
-                for b in scegli(trovati, min(BRANI_PER_CODICE, posto)):
+                for b in scegli(trovati, min(BRANI_PER_CODICE, posto), f):
                     presenti.add((b['doc'], b['n']))
-                    nuovi.append(fonte_da_brano(b, f['punteggio']))
+                    nuova = fonte_da_brano(b, f['punteggio'])
+                    if nuova['consultazione']:      # recuperato da un codice raro: per questa risposta è un brano del caso, non un indizio
+                        nuova.update(consultazione=False, recuperato=True)
+                    nuovi.append(nuova)
                 if len(seguiti) >= SALTI * CODICI_PER_SALTO:
                     break
         if not nuovi:
@@ -161,8 +191,10 @@ def segui_riferimenti(fonti, caso, strumenti, indice=None, domanda=None):
         aggiunti += nuovi
         partenza = nuovi
     if aggiunti:
+        recuperati = [f['doc'] for f in aggiunti if f.get('recuperato')]
         strumenti.append({'nome': 'segui_riferimenti', 'ms': ms(t),
-                          'dettaglio': f'legami {", ".join(sorted(seguiti))}: aggiunti ' + ', '.join(f['doc'] for f in aggiunti)})
+                          'dettaglio': f'legami {", ".join(sorted(seguiti))}: aggiunti ' + ', '.join(f['doc'] for f in aggiunti)
+                                       + (f' (recuperati tra gli esclusi: {", ".join(recuperati)})' if recuperati else '')})
     return fonti + aggiunti
 
 
@@ -226,7 +258,9 @@ def cerca_fonti(indice, domanda, precedenti, strumenti, modello=None, demo=False
     q = _norma(domanda)
     with indice.lock:
         brani = list(indice.brani)
-    caso = [brani[i] for i in limita_per_documento([i for i, b in enumerate(brani) if not b['consultazione']], brani)]
+    # TUTTI i brani del caso: limitarli ai primi MAX_BRANI_PER_DOC di ogni documento (in ordine di archivio) toglieva ai salti, alle domande sui
+    # giorni e a «tutti i file» il resto dei documenti lunghi (un codice al terzo brano di un verbale non si trovava mai)
+    caso = [b for b in brani if not b['consultazione']]
     # "cosa è successo il giorno 2?", "dal primo al terzo giorno": i documenti pertinenti di quei giorni, tutti se ci stanno
     giorni = giorni_chiesti(domanda)
     if giorni:
@@ -261,6 +295,7 @@ RE_GIORNO_NUMERO = re.compile(r'\b(?:giorno|giornata|day)\s*(?:operativo\s*)?0*(
 RE_GIORNO_ORDINALE = re.compile(r'\b(primo|prima|secondo|seconda|terzo|terza|quarto|quarta|quinto|quinta)\s+(?:giorno|giornata)\b')
 
 
+RE_NON_GIORNO = re.compile(r'\b(?:alle|ore|dalle|verso le|entro le|h)\s+\d{1,2}(?:\s+\d{2})?\b|\b\d{1,2}\s+\d{2}\b')
 RE_VALORE_GIORNO = re.compile(r'\b(\d{1,2}|uno|due|tre|quattro|cinque|primo|prima|secondo|seconda|terzo|terza|quarto|quarta|quinto|quinta)\b')
 
 
@@ -271,6 +306,8 @@ def giorni_chiesti(domanda):
     if not (RE_GIORNO_NUMERO.search(q) or RE_GIORNO_ORDINALE.search(q) or re.search(r'\bgiorn[oi]\b|\bgiornat[ae]\b', q)):
         return set()
     valori = []
+    # gli orari non sono giorni: «il giorno 2 alle 14» è il giorno 2, non i giorni 2 e 14 («alle 14:30» arriva qui come «alle 14 30»)
+    q = RE_NON_GIORNO.sub(' ', q)
     for v in RE_VALORE_GIORNO.findall(q):
         n = int(v) if v.isdigit() else ORDINALI_GIORNO[v]
         if 1 <= n <= 31:

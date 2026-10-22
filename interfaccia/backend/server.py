@@ -235,8 +235,9 @@ class Gestore(BaseHTTPRequestHandler):
         conversazione = motore.controlla_pertinenza(INDICE, modello, domanda, strumenti, STATO['demo'])
         motivo = strumenti[-1]['dettaglio'] if strumenti else ''
         fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, [], strumenti, modello, STATO['demo'], traccia)
-        messaggi = motore.costruisci_messaggi(domanda, fonti, [], conversazione,
-                                              nota_archivio='' if conversazione else motore.note_per_prompt(INDICE, domanda))
+        messaggi = motore.costruisci_messaggi(domanda, fonti, [], conversazione,     # lo stesso prompt di api_chiedi, dossier compreso
+                                              nota_archivio='' if conversazione else
+                                              '\n\n'.join(x for x in (motore.note_per_prompt(INDICE, domanda), self.dossier()) if x))
         caratteri = sum(len(m['content']) for m in messaggi)
         self.json({'domanda': domanda, 'conversazione': conversazione, 'motivo': motivo, 'strumenti': strumenti,
                    'traccia': traccia, 'ms': ms(t0),
@@ -244,8 +245,8 @@ class Gestore(BaseHTTPRequestHandler):
                               'pertinente': not f.get('consultazione'), 'giorno': f.get('giorno'), 'caratteri': len(f['testo'])} for f in fonti],
                    'messaggi': messaggi, 'token_stimati': caratteri // 3})
 
-    def riepilogo_verificato(self, massimo=14):
-        """Indizi, ipotesi, eventi e persone confermati dai documenti del caso, per i riassunti in chat."""
+    def riepilogo_verificato(self, massimo=14, con_persone=True):
+        """Indizi, ipotesi, eventi e persone confermati dai documenti del caso, per i riassunti in chat (e, senza persone, per il dossier)."""
         righe = []
         for tipo in ('eventi', 'indizi'):
             for r in sorted(STORICO.raccogli(tipo).values(), key=lambda r: -r['citazioni']):
@@ -254,8 +255,16 @@ class Gestore(BaseHTTPRequestHandler):
                     genere = r.get('genere') or ('evento' if tipo == 'eventi' else 'indizio')
                     nome = re.sub(r'\s*\((indizio|ipotesi)\)$', '', r['nome'])
                     righe.append(f"- {genere.capitalize()}: {nome} — {r.get('descrizione') or prove[0]['citazione']} [{prove[0]['doc']}]")
-        persone = [p['nome'] for p in self.elenco_persone()]
+        persone = [p['nome'] for p in self.elenco_persone()] if con_persone else []
         return '\n'.join(righe[:massimo] + ([f"- Persone: {', '.join(persone)}"] if persone else []))
+
+    def dossier(self):
+        """Per il prompt delle domande sul caso: ciò che le risposte precedenti hanno già accertato nei documenti (cfg.DOSSIER_MAX_VOCI voci)."""
+        if not cfg.DOSSIER_MAX_VOCI:
+            return ''
+        voci = self.riepilogo_verificato(cfg.DOSSIER_MAX_VOCI, con_persone=False)
+        return ('GIÀ ACCERTATO in risposte precedenti (verificato nei documenti indicati). Usalo per collegare i fatti delle fonti qui sotto e per '
+                'le ipotesi, ma rispondi dalle Fonti e cita le Fonti:\n' + voci) if voci else ''
 
     def api_bacheca(self):
         """Bacheca dell'investigatore. Nodi: indizi, ipotesi ed eventi verificati, e le persone trovate (con volto).
@@ -476,7 +485,7 @@ class Gestore(BaseHTTPRequestHandler):
         if self.headers.get('X-Senza-Indice') == '1':   # cartella: l'indice si ricostruisce una volta sola alla fine
             return self.json({'salvati': salvati, 'ms': ms(t)})
         INDICE.ricarica()
-        INDICE.calcola_embedding()
+        INDICE.aggiorna_in_background()     # embedding e pertinenza dei nuovi brani senza far aspettare la pagina
         evento = {'nome': 'carica_file', 'ms': ms(t), 'dettaglio': f'{nome}: {len(salvati)} file'}
         EVENTI_CARICAMENTO.append(evento)
         self.json({'salvati': salvati, 'documenti': len(INDICE.documenti), 'brani': len(INDICE.brani), 'ms': evento['ms']})
@@ -486,7 +495,7 @@ class Gestore(BaseHTTPRequestHandler):
         corpo = self.corpo_json()
         t = time.perf_counter()
         INDICE.ricarica()
-        INDICE.calcola_embedding()
+        INDICE.aggiorna_in_background()
         evento = {'nome': 'carica_file', 'ms': ms(t), 'dettaglio': f"{corpo.get('nome', 'cartella')}: {corpo.get('file', 0)} file"}
         EVENTI_CARICAMENTO.append(evento)
         self.json({'documenti': len(INDICE.documenti), 'brani': len(INDICE.brani), 'ms': evento['ms']})
@@ -504,7 +513,7 @@ class Gestore(BaseHTTPRequestHandler):
                 cartella.rmdir()
                 cartella = cartella.parent
         INDICE.ricarica()
-        INDICE.calcola_embedding()
+        INDICE.aggiorna_in_background()
         self.json({'documenti': len(INDICE.documenti)})
 
     def api_svuota_caricati(self):
@@ -524,7 +533,7 @@ class Gestore(BaseHTTPRequestHandler):
                 elif p.is_dir() and not any(p.iterdir()):
                     p.rmdir()
         INDICE.ricarica()
-        INDICE.calcola_embedding()
+        INDICE.aggiorna_in_background()
         EVENTI_CARICAMENTO.append({'nome': 'carica_file', 'ms': ms(t), 'dettaglio': f'svuotati i caricati: {tolti} file tolti'})
         self.json({'tolti': tolti, 'documenti': len(INDICE.documenti), 'ms': ms(t)})
 
@@ -588,7 +597,8 @@ class Gestore(BaseHTTPRequestHandler):
         messaggi = motore.costruisci_messaggi(domanda if conversazione else domanda_ricerca, fonti, precedenti, conversazione,
                                               cronologia=[v for v in cronologia if not v.get('meta')],
                                               elementi_verificati=self.riepilogo_verificato() if riassunto else '',
-                                              nota_archivio='' if conversazione else motore.note_per_prompt(INDICE, domanda_ricerca))
+                                              nota_archivio='' if conversazione else
+                                              '\n\n'.join(x for x in (motore.note_per_prompt(INDICE, domanda_ricerca), self.dossier()) if x))
 
         risposta, prima_parola, stat, errore = '', None, {}, None
         t_gen = time.perf_counter()

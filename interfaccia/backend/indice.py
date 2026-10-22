@@ -17,7 +17,7 @@ from config import (CARTELLA_CARICATI, CARTELLA_REGISTRO, ESTENSIONI_MARKUP, EST
 from modello import embed
 from pertinenza import pertinenti as raggruppa_pertinenti
 from testo import STOP, estrai_nomi, frasi, ms, parole, senza_accenti
-from scenario import RE_GIORNO_CARTELLA, RE_GIORNO_TESTO, RE_GIORNO_ID
+from scenario import RE_CODICE, RE_GIORNO_CARTELLA, RE_GIORNO_TESTO, RE_GIORNO_ID, RE_ID_DOCUMENTO
 
 try:
     import numpy as np
@@ -215,6 +215,11 @@ class Indice:
         self.blocco_embedding = threading.Lock()   # un calcolo di embedding alla volta (avvio e caricamento file possono sovrapporsi)
         self.info_pertinenza = {'dettaglio': 'non ancora calcolata: tutti pertinenti', 'pertinenti': None, 'esclusi': 0}
         self.mappa_pertinenza = None
+        self._letture = {}       # percorso -> ((data di modifica, dimensione), testo): vedi `_leggi_con_cache`
+        self._basi = {}          # id del documento -> (testo, titolo, brani già analizzati): vedi `_costruisci`
+        self.postings = {}       # parola -> [(indice del brano, frequenza)]: BM25 tocca solo i brani che contengono le parole della domanda
+        self.indice_codici = {}  # codice -> [indici dei brani che lo contengono] (tutto l'archivio): ricerca a salti e recupero dei documenti esclusi
+        self._nomi_ordinati = None  # nomi di persona e alias dal più lungo, per `persone_in` (si rifà quando cambia l'elenco delle persone)
         self.cache_emb = {}
         # Con numpy la cache è una matrice .npy (float32) + l'elenco delle chiavi: si legge in decimi di secondo invece di decine di secondi
         # (il vecchio JSON pesava ~66 MB) e i vettori restano righe di un solo array, non milioni di float Python. Senza numpy, o se
@@ -264,7 +269,7 @@ class Indice:
 
     # -- caricamento
     def ricarica(self):
-        docs = {}
+        docs, letture = {}, {}
         dati = Path(cfg.CARTELLA_DATI).resolve() if cfg.CARTELLA_DATI else None    # di solito nessuna (solo --dati)
         for cartella, origine in ((dati, 'squadra'), (CARTELLA_CARICATI, 'caricato')):
             if not cartella or not cartella.exists():
@@ -276,18 +281,23 @@ class Indice:
                     continue    # il diario delle risposte non è un documento: il modello citerebbe se stesso
                 if p.is_file() and p.suffix.lower() in ESTENSIONI_OK - {'.zip'}:
                     try:
-                        testo = leggi_file(p)
+                        testo = self._leggi_con_cache(p, letture)
                     except Exception as e:  # file illeggibile: lo segnaliamo ma andiamo avanti
                         print(f'  ! {p.name}: {e}')
                         continue
                     doc_id = p.stem if p.stem not in docs else f'{p.stem}_{origine}'
+                    # consultazione = NON pertinente all'indagine: lo decide il clustering (calcola_pertinenza) quando ci sono gli embedding.
+                    # Un documento già visto con lo stesso testo tiene l'esito del clustering precedente finché il nuovo calcolo (in background)
+                    # non finisce: altrimenti, dopo ogni caricamento, per qualche secondo tutte le voci estranee tornerebbero «del caso».
+                    prima = self.documenti.get(doc_id)
+                    stesso = bool(prima) and prima['testo'] == testo
                     docs[doc_id] = {'id': doc_id, 'nome': p.name, 'origine': origine,
                                     'percorso': str(p.relative_to(PROGETTO)) if p.is_relative_to(PROGETTO) else str(p),
-                                    # consultazione = NON pertinente all'indagine: lo decide il clustering
-                                    # (calcola_pertinenza) quando ci sono gli embedding; fino ad allora tutti pertinenti
-                                    'testo': testo, 'consultazione': False, 'pertinenza': None, 'id_interno': id_interno(testo)}
+                                    'testo': testo, 'consultazione': prima['consultazione'] if stesso else False,
+                                    'pertinenza': prima.get('pertinenza') if stesso else None, 'id_interno': id_interno(testo)}
                     rel = p.relative_to(cartella) if p.is_relative_to(cartella) else p
                     docs[doc_id]['giorno'] = giorno_di(rel, testo, doc_id, docs[doc_id]['id_interno'])
+        self._letture = letture         # i file spariti escono dalla cache
         docs = dict(sorted(docs.items(), key=lambda kv: ordine_naturale(kv[0])))   # stesso ordine da qualunque cartella
         for d in docs.values():
             self._segna_sospetto(d)
@@ -295,30 +305,61 @@ class Indice:
             self.documenti = docs
             self._costruisci()
 
+    def _leggi_con_cache(self, p, letture):
+        """Testo del file, riletto (e ri-analizzato: PDF, xlsx, docx) solo se è cambiato dall'ultima volta (data di modifica e dimensione).
+        Un caricamento o una rimozione non rilegge tutto l'archivio."""
+        st = p.stat()
+        firma = (st.st_mtime_ns, st.st_size)
+        vecchia = self._letture.get(str(p))
+        testo = vecchia[1] if vecchia and vecchia[0] == firma else leggi_file(p)
+        letture[str(p)] = (firma, testo)
+        return testo
+
     def _costruisci(self):
-        brani = []
+        brani, basi = [], {}
         for d in self.documenti.values():
-            titolo, pezzi = spezza(d['id'], d['testo'])
+            # l'analisi dei brani (parole, frequenze, coppie, codici) di un documento con lo stesso testo si riusa: un caricamento non la rifà per tutti
+            vecchia = self._basi.get(d['id'])
+            if vecchia and vecchia[0] == d['testo']:
+                titolo, pezzi = vecchia[1], vecchia[2]
+            else:
+                titolo, testi = spezza(d['id'], d['testo'])
+                pezzi = []
+                for n, t in enumerate(testi):
+                    p = parole(f'{titolo} {t}')
+                    # testo per l'embedding: dal secondo brano in poi il brano non sa più di che documento è (titolo) né come finiva il brano
+                    # prima (un fatto spezzato a metà). Si aggiungono il titolo e l'ultima frase del brano precedente, SOLO per l'embedding: il
+                    # testo dato al modello resta quello del brano, senza ripetizioni. Il primo brano resta com'era (stessa chiave nella cache).
+                    testo_emb = t if n == 0 else f'{titolo}\n{(frasi(testi[n - 1]) or [""])[-1]} {t}'
+                    pezzi.append({'n': n, 'testo': t, 'testo_emb': testo_emb, 'parole': p, 'freq': Counter(p), 'frasi': coppie_di(f'{titolo} {t}'),
+                                  'codici': codici_del_testo(t)})
+            basi[d['id']] = (d['testo'], titolo, pezzi)
             d['titolo'] = titolo
-            for n, t in enumerate(pezzi):
-                p = parole(f'{titolo} {t}')
-                brani.append({'doc': d['id'], 'id_interno': d.get('id_interno'), 'consultazione': d.get('consultazione', False),
-                              'sospetto': d.get('sospetto'), 'giorno': d.get('giorno'), 'n': n, 'testo': t, 'parole': p, 'freq': Counter(p), 'frasi': coppie_di(f'{titolo} {t}'), 'emb': None})
-        # BM25
+            for base in pezzi:
+                brani.append({**base, 'doc': d['id'], 'id_interno': d.get('id_interno'), 'titolo': titolo, 'consultazione': d.get('consultazione', False),
+                              'sospetto': d.get('sospetto'), 'giorno': d.get('giorno'), 'emb': None})
+        self._basi = basi
+        # BM25 con indice invertito: per ogni parola i brani che la contengono (la ricerca non scorre tutto l'archivio)
         self.df = Counter()
-        for b in brani:
-            self.df.update(set(b['parole']))
+        postings, codici = defaultdict(list), defaultdict(list)
+        for i, b in enumerate(brani):
+            for w, f in b['freq'].items():
+                postings[w].append((i, f))
+            for c in b['codici']:
+                codici[c].append(i)
+        self.df = Counter({w: len(v) for w, v in postings.items()})
+        self.postings, self.indice_codici = dict(postings), dict(codici)
         self.lung_media = (sum(len(b['parole']) for b in brani) / len(brani)) if brani else 1
         self.df_caso = None             # si ricalcola alla prima ricerca (vedi `frequenze_del_caso`)
         self.brani = brani
         for b in brani:         # embedding già calcolati (cache): la ricerca per significato non aspetta il nuovo calcolo
-            b['emb'] = self.cache_emb.get(self._chiave(b['testo'])) if self.embedding_attivo else None
+            b['emb'] = self.cache_emb.get(self._chiave(b['testo_emb'])) if self.embedding_attivo else None
         self._carica_matrice()
         # Le persone si cercano solo nei documenti pertinenti. Se arriveranno gli embedding, la pertinenza la decide il
         # clustering (calcola_pertinenza), che poi ricostruisce l'elenco: farlo qui su tutto l'archivio costerebbe
         # ~17 s con 1000 voci estranee, buttati subito dopo. Senza embedding (pochi testi, demo) si fa subito.
         if self.embedding_attivo and not tutto_nel_contesto(brani):
-            self.persone, self.alias = {}, {}
+            self.persone, self.alias, self._nomi_ordinati = {}, {}, None
         else:
             self._indicizza_persone()
 
@@ -350,6 +391,7 @@ class Indice:
                     alias.setdefault(t, n)
         self.persone = dict(persone)
         self.alias = alias
+        self._nomi_ordinati = None
 
     # -- embedding
     GRUPPO_EMBEDDING = 32       # brani per richiesta a Ollama
@@ -360,21 +402,21 @@ class Indice:
             return          # pochi testi: gli embedding non servono e farebbero caricare un secondo modello
         with self.blocco_embedding:
             with self.lock:
-                mancanti = [b for b in self.brani if self._chiave(b['testo']) not in self.cache_emb]
+                mancanti = [b for b in self.brani if self._chiave(b['testo_emb']) not in self.cache_emb]
             errore = None
             try:
                 for k, i in enumerate(range(0, len(mancanti), self.GRUPPO_EMBEDDING), 1):
                     gruppo = mancanti[i:i + self.GRUPPO_EMBEDDING]
-                    vettori = embed([b['testo'] for b in gruppo])
+                    vettori = embed([b['testo_emb'] for b in gruppo])
                     for b, v in zip(gruppo, vettori):
-                        self.cache_emb[self._chiave(b['testo'])] = v
+                        self.cache_emb[self._chiave(b['testo_emb'])] = v
                     if k % self.SALVA_OGNI == 0:
                         self._salva_cache()
             except Exception as e:
                 errore = e
             with self.lock:
                 for b in self.brani:
-                    b['emb'] = self.cache_emb.get(self._chiave(b['testo']))
+                    b['emb'] = self.cache_emb.get(self._chiave(b['testo_emb']))
                 self._carica_matrice()
             if mancanti:
                 self._salva_cache()           # anche dopo un errore: gli embedding già calcolati non si rifanno
@@ -383,6 +425,11 @@ class Indice:
                 print(f'  Embedding non completi ({errore}): pronti {pronti} brani su {len(self.brani)}. '
                       + ('La ricerca per significato usa quelli pronti, con le parole chiave.' if pronti else 'Uso solo la ricerca per parole chiave.'))
             self.calcola_pertinenza()
+
+    def aggiorna_in_background(self):
+        """Embedding dei brani nuovi e pertinenza in un thread: chi carica o rimuove un file riceve subito la risposta. Nel frattempo la ricerca
+        usa gli embedding già pronti e, per i documenti già visti, l'esito del clustering precedente."""
+        threading.Thread(target=self.calcola_embedding, daemon=True).start()
 
     def _leggi_cache(self):
         """{chiave: vettore} dalla cache su disco: .npy se c'è (e numpy), altrimenti il JSON."""
@@ -525,6 +572,8 @@ class Indice:
             brani = list(self.brani)
             n = len(brani)
             matrice, presenti, usabile = self.matrice, list(self.emb_presenti), self.embedding_usabile
+            # df, postings e lunghezza media dello STESSO archivio dei brani: una ricostruzione a metà ricerca non li mescola
+            df, postings, lung_media, indice_codici = self.df, self.postings, self.lung_media, self.indice_codici
         if not n:
             return []
         if tutto_nel_contesto(brani):
@@ -538,17 +587,15 @@ class Indice:
         q = parole(domanda)
 
         def punteggi_bm25(parole_query):
-            risultato = []
-            for i, b in enumerate(brani):
-                freq = b['freq']
-                s = 0.0
-                for w in parole_query:
-                    if w in freq:
-                        idf = math.log(1 + (n - self.df[w] + 0.5) / (self.df[w] + 0.5))
-                        f = freq[w]
-                        s += idf * f * 2.2 / (f + 1.2 * (0.25 + 0.75 * len(b['parole']) / self.lung_media))
-                risultato.append((s, i))
-            return risultato
+            """[(punteggio, indice)] dei soli brani con almeno una parola della domanda: l'indice invertito evita di scorrere tutto l'archivio."""
+            punti = defaultdict(float)
+            for w in parole_query:          # una parola ripetuta nella domanda conta più volte, come prima
+                if w not in postings:
+                    continue
+                idf = math.log(1 + (n - df[w] + 0.5) / (df[w] + 0.5))
+                for i, f in postings[w]:
+                    punti[i] += idf * f * 2.2 / (f + 1.2 * (0.25 + 0.75 * len(brani[i]['parole']) / lung_media))
+            return [(s, i) for i, s in punti.items()]
         punteggi = punteggi_bm25(q)
         # classifiche COMPLETE (non solo i primi 30): i documenti pertinenti possono stare in fondo all'archivio intero
         bm25 = [i for s, i in sorted(punteggi, reverse=True) if s > 0]
@@ -556,8 +603,9 @@ class Indice:
         pertinenti = [i for i, b in enumerate(brani) if not b['consultazione']]
         # al massimo MAX_BRANI_PER_DOC brani per documento: i documenti del caso sono brevi (un brano), un documento
         # lungo o un intruso del clustering non deve occupare il posto degli altri
-        pertinenti_limitati = limita_per_documento(pertinenti, brani)
-        tutti_pertinenti = bool(pertinenti) and len(pertinenti) < n and tutto_nel_contesto([brani[i] for i in pertinenti_limitati])
+        # «tutti i pertinenti» solo se ci stanno INTERI: tagliarli ai primi MAX_BRANI_PER_DOC brani perdeva il resto dei documenti lunghi senza dirlo
+        # (meglio la ricerca normale, che sceglie i brani migliori di ogni documento)
+        tutti_pertinenti = bool(pertinenti) and len(pertinenti) < n and tutto_nel_contesto([brani[i] for i in pertinenti])
 
         semantica, punti_sem, migliore = [], [], None
         if usabile:
@@ -584,13 +632,20 @@ class Indice:
         if cfg.IDENT_FRASI:
             df_frasi = self.frequenze_frasi_del_caso(brani)
             frasi_rare = sorted({f for f in coppie_di(domanda) if 0 < df_frasi.get(f, 0) <= cfg.IDENT_FRASE_DF_MAX})
+        # Recupero: un codice della domanda (pratica, lotto) che compare in pochi brani, esclusi dal clustering. Il clustering decide per documento
+        # e può sbagliare (un documento del caso scritto diversamente dagli altri); un codice esatto è una prova più forte. Quei brani, per questa
+        # domanda, valgono come brani del caso (non diventano però indizi: l'esclusione nell'indice resta).
+        codici_domanda = [c for c in codici_del_testo(domanda.upper()) if 0 < len(indice_codici.get(c, ())) <= soglia_df]
+        recuperati = {i for c in codici_domanda for i in indice_codici[c] if brani[i]['consultazione']} if cfg.RECUPERA_CON_CODICI else set()
         identificatori = []
-        if rari or frasi_rare:
-            trovati = [(sum(w in brani[i]['freq'] for w in rari) + sum(f in frasi_di(brani[i]) for f in frasi_rare), s, i)
-                       for s, i in punteggi if s > 0 and not brani[i]['consultazione']]
+        if rari or frasi_rare or recuperati:
+            trovati = [(sum(w in brani[i]['freq'] for w in rari) + sum(f in frasi_di(brani[i]) for f in frasi_rare)
+                        + sum(c in brani[i].get('codici', ()) for c in codici_domanda), s, i)
+                       for s, i in punteggi if s > 0 and (not brani[i]['consultazione'] or i in recuperati)]
             identificatori = [i for k, s, i in sorted((x for x in trovati if x[0]), reverse=True)[:cfg.IDENT_MAX_BRANI]]
             strumenti.append({'nome': 'cerca_identificatori', 'ms': ms(t),
-                              'dettaglio': f'{len(identificatori)} brani con {", ".join(rari + [f"«{a} {b}»" for a, b in frasi_rare])}'})
+                              'dettaglio': f'{len(identificatori)} brani con {", ".join(rari + [f"«{a} {b}»" for a, b in frasi_rare])}'
+                                           + (f' · {len(recuperati)} brani recuperati tra gli esclusi grazie a {", ".join(codici_domanda)}' if recuperati else '')})
 
         # HyDE: solo se la domanda da sola trova poco. È una classifica IN PIÙ: un'ipotesi sbagliata
         # non può togliere i brani trovati con la domanda vera.
@@ -641,10 +696,10 @@ class Indice:
         classifica = sorted(rrf, key=rrf.get, reverse=True)
         # solo i documenti pertinenti all'indagine (protocollo di clustering) danno il loro contenuto al modello:
         # se ci stanno tutti, li riceve tutti (nell'ordine dei documenti); altrimenti i migliori tra i pertinenti
-        insieme = set(pertinenti)
+        insieme = set(pertinenti) | recuperati
         punti_scelti = rrf
         if tutti_pertinenti:
-            scelti = pertinenti_limitati
+            scelti = pertinenti + sorted(recuperati)
         else:
             # tra i pertinenti contano anche gli identificatori: un codice esatto vale più di una somiglianza di significato
             punti_scelti = rrf_p = fondi({nome: [i for i in c if i in insieme] for nome, c in classifiche.items()})
@@ -658,16 +713,20 @@ class Indice:
         fuori, visti = [], set()
         if tutti_pertinenti:
             copie_di = {}
-        if classifica and brani[classifica[0]]['consultazione']:
+        # Con molte voci estranee vicine per argomento il primo posto su tutto l'archivio va spesso a una di loro per poco: entrano solo se battono
+        # il miglior brano del caso con un margine (FUORI_MARGINE) e al massimo FUORI_MAX_BRANI, così non prendono il posto del caso nel prompt.
+        migliore_caso = max((rrf[i] for i in classifica if not brani[i]['consultazione'] or i in recuperati), default=0.0)
+        if classifica and brani[classifica[0]]['consultazione'] and classifica[0] not in recuperati \
+                and rrf[classifica[0]] >= migliore_caso * cfg.FUORI_MARGINE:
             soglia = rrf[classifica[0]] * 0.8
             for i in classifica:
-                if not brani[i]['consultazione'] or rrf[i] < soglia:
+                if not brani[i]['consultazione'] or i in recuperati or rrf[i] < soglia:
                     continue
                 if brani[i]['doc'] not in visti and len(visti) == 3:
                     continue                      # al massimo 3 documenti non pertinenti
                 visti.add(brani[i]['doc'])
                 fuori.append(fonte_da_brano(brani[i], rrf[i]))
-                if len(fuori) == TOP_K:
+                if len(fuori) == cfg.FUORI_MAX_BRANI:
                     break
         strumenti.append({'nome': 'fondi_risultati', 'ms': ms(t),
                           'dettaglio': (f'tutti i {len(scelti)} brani pertinenti' if tutti_pertinenti else f'{len(scelti)} brani pertinenti scelti')
@@ -691,16 +750,32 @@ class Indice:
                         for i in classifica[:25]]})
         fonti = [fonte_da_brano(brani[i], punti_scelti.get(i, 0)) for i in scelti]
         for i, f in zip(scelti, fonti):
+            if i in recuperati:
+                f.update(consultazione=False, recuperato=True)      # nel prompt come brano del caso; non diventa un indizio (del_caso)
             if copie_di.get(i):
                 f['copie'] = sorted({brani[c]['doc'] for c in copie_di[i]} - {f['doc']})      # ID delle copie quasi identiche, per il prompt
         return fuori + fonti
+
+    def brani_con_nome(self, nome, brani=None):
+        """Indici dei brani che contengono il nome come parola intera (maiuscole a parte). Si parte dall'indice invertito (i brani che hanno
+        tutte le parole del nome), poi si controlla la sequenza esatta: niente scansione di tutto l'archivio a ogni salto."""
+        with self.lock:
+            brani = self.brani if brani is None else brani
+            postings = self.postings
+        chiavi = set(parole(nome))
+        if not chiavi or any(w not in postings for w in chiavi):
+            return []
+        candidati = set.intersection(*({i for i, _ in postings[w]} for w in chiavi))
+        esatto = re.compile(rf'(?<![\w]){re.escape(nome)}(?![\w])', re.I)
+        return sorted(i for i in candidati if i < len(brani) and esatto.search(brani[i]['testo']))
 
     def persone_in(self, testo):
         """Persone citate in un testo, solo se compaiono anche nei documenti (nomi inventati o etichette no)."""
         trovate = []
         with self.lock:
-            noti = list(self.persone) + list(self.alias)
-            for nome in sorted(noti, key=len, reverse=True):
+            if self._nomi_ordinati is None:     # ordinarli a ogni chiamata costava: la bacheca la chiama per ogni voce
+                self._nomi_ordinati = sorted(list(self.persone) + list(self.alias), key=len, reverse=True)
+            for nome in self._nomi_ordinati:
                 # `nome in testo` scarta in C quasi tutti i nomi: la regex (lenta, una per nome) parte solo per i pochi candidati
                 if nome in testo and re.search(rf'(?<![\w]){re.escape(nome)}(?![\w])', testo):
                     vero = self.alias.get(nome, nome)
@@ -717,6 +792,11 @@ class Indice:
 
 
 STOP_SENZA_ACCENTI = frozenset(senza_accenti(w) for w in STOP)
+
+
+def codici_del_testo(testo):
+    """I codici del testo (pratiche, lotti, segnali: M462, EV-441), senza gli ID dei documenti, che ogni documento ha."""
+    return [c for c in dict.fromkeys(RE_CODICE.findall(testo)) if not RE_ID_DOCUMENTO.match(c)]
 
 
 def coppie_di(testo):
@@ -795,7 +875,7 @@ def fonte_da_brano(b, punteggio=0, solo_titolo=None):
     """Un brano scelto, nel formato delle fonti passate al modello e mostrate nella pagina.
     solo_titolo: documento non pertinente di cui si passa solo il titolo, senza contenuto."""
     fonte = {'doc': b['doc'], 'id_interno': b['id_interno'], 'consultazione': b['consultazione'], 'sospetto': b.get('sospetto'),
-             'giorno': b.get('giorno'), 'n': b['n'], 'testo': b['testo'], 'punteggio': round(punteggio, 4)}
+             'giorno': b.get('giorno'), 'n': b['n'], 'testo': b['testo'], 'titolo': b.get('titolo'), 'punteggio': round(punteggio, 4)}
     if solo_titolo is not None:
         fonte.update(testo='', solo_titolo=solo_titolo or b['doc'])
     return fonte
@@ -817,7 +897,9 @@ def contesto_da_fonti(fonti):
         if f.get('solo_titolo') is not None:
             return f'{giorno}{NOTA_CONSULTAZIONE} titolo: «{f["solo_titolo"]}». Contenuto non disponibile.'
         copie = f' (testo quasi identico anche in: {", ".join(f["copie"][:8])}{" …" if len(f["copie"]) > 8 else ""}) ' if f.get('copie') else ''
-        return giorno + copie + (f'{NOTA_CONSULTAZIONE} ' if f.get('consultazione') else '')
+        # dal secondo brano in poi il testo non dice di che documento si tratta: il titolo lo ricorda al modello
+        titolo = f'«{f["titolo"]}» … ' if f.get('n') and f.get('titolo') else ''
+        return giorno + copie + (f'{NOTA_CONSULTAZIONE} ' if f.get('consultazione') else '') + titolo
     return '\n\n'.join(f'[{d}] ' + nota(v[0]) + ' '.join(x['testo'] for x in sorted(v, key=lambda x: x['n']))
                        for d, v in documenti)
 

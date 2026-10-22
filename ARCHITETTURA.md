@@ -205,6 +205,21 @@ solo la libreria standard (più `requests`) nel backend.
   sbagliato e il modello perdeva il ruolo), e allarga il contesto se istruzioni + documenti + risposta non ci stanno.
   Le nuove chiamate al modello devono passare da qui.
 - **Modello usato**: `MODELLO` in `avvia_interfaccia.bat`.
+- **Documenti esclusi per errore dal clustering** (`RECUPERA_CON_CODICI` in `config.py`): un codice raro (in pochi brani) della domanda o di un brano
+  già trovato porta anche ai brani esclusi che lo contengono (`Indice.indice_codici`). Per quella risposta valgono come caso (`recuperato` nella fonte,
+  segnalato negli strumenti), ma non diventano indizi: l'esclusione nell'indice resta.
+- **Documenti lunghi**: i salti, le domande sui giorni e «tutti i file» usano TUTTI i brani del caso (prima solo i primi `MAX_BRANI_PER_DOC` di ogni
+  documento, in ordine di archivio). «Tutti i pertinenti» si passano solo se ci stanno interi.
+- **Contesto dei brani**: dal secondo brano in poi l'embedding si calcola su titolo + ultima frase del brano precedente + brano (`testo_emb`); il modello
+  riceve il brano com'è, con il titolo del documento davanti. Al primo avvio si ricalcolano solo gli embedding dei brani non iniziali.
+- **Dossier** (`DOSSIER_MAX_VOCI`): gli eventi e gli indizi già verificati entrano anche nel prompt delle domande sul caso (`Gestore.dossier`).
+- **Estranei nel prompt**: entrano solo se battono il miglior brano del caso di `FUORI_MARGINE` e al massimo `FUORI_MAX_BRANI`.
+- **Velocità dell'indice**: i file non cambiati non si rileggono (`_leggi_con_cache`), i brani dei documenti non cambiati non si ri-analizzano (`_basi`),
+  BM25 usa un indice invertito (`postings`), i salti usano gli indici di codici e parole invece di scorrere i brani. Caricare o rimuovere file
+  risponde subito: embedding e pertinenza continuano in background (`aggiorna_in_background`); nel frattempo i documenti già visti tengono la
+  pertinenza di prima.
+- **Cache del prompt in Ollama**: `ISOLA_SOLO_DOPO_ISTRUZIONI` in `lazarus.py` mette il codice casuale in fondo alle istruzioni, così Ollama può
+  riusarle. Da verificare a mano con gemma; se ricompaiono risposte fuori ruolo, rimettilo a False.
 
 ## Regole del progetto
 

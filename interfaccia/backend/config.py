@@ -51,6 +51,18 @@ IDENT_MAX_BRANI = 30      # lunghezza massima della classifica degli identificat
 MMR_LAMBDA = 0.5
 COPIE_SOGLIA = 0.97        # brani con somiglianza (coseno) da qui in su sono copie: tra i candidati ne resta uno, con l'elenco delle altre. 1 = spento
 MMR_POOL = 40              # candidati tra cui si sceglie (i migliori per punteggio, al massimo MAX_BRANI_PER_DOC per documento)
+# Il clustering di pertinenza decide per documento e può escludere un documento del caso scritto diversamente dagli altri. Un codice raro (pratica,
+# lotto: compare in pochi brani) della domanda o di un brano già trovato porta anche ai brani esclusi che lo contengono: per quella risposta valgono
+# come caso, ma non diventano indizi, eventi o luoghi (l'esclusione nell'indice resta). False = i documenti esclusi non rientrano mai.
+RECUPERA_CON_CODICI = True
+# Documenti NON pertinenti nel prompt: solo se il primo brano di tutto l'archivio è estraneo E batte il miglior brano del caso di questo fattore
+# (con molte voci vicine per argomento vincevano spesso per poco), e al massimo questi brani (prima erano fino a TOP_K, 10, oltre ai 10 del caso).
+FUORI_MARGINE = 1.1
+FUORI_MAX_BRANI = 4
+# Dossier: gli eventi e gli indizi già verificati nei documenti (risposte precedenti) vanno anche nel prompt delle domande sul caso, con il loro ID.
+# Le risposte restano senza memoria della chat, ma il modello sa cosa è già stato accertato e può collegarlo alle fonti nuove per un'ipotesi.
+# 0 = nessun dossier (come prima: solo nei riassunti di chat).
+DOSSIER_MAX_VOCI = 8
 # Domande di seguito ("e lui?", "e dopo?"): una chiamata breve le rende autonome con i nomi degli scambi visibili,
 # prima di pertinenza, ricerca e risposta. Parte solo se la domanda sembra dipendere dalla conversazione.
 RISCRIVI_DOMANDE = True
