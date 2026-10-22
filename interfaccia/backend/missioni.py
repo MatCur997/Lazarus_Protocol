@@ -34,6 +34,18 @@ def _norma(testo):
     return re.sub(r'\s+', ' ', re.sub(r"[^\w\s-]", ' ', t)).strip()
 
 
+def missione_per_istante(database, istante):
+    """Il database a cui va un istante comunicato senza nominare la missione: quello con l'istante in vigore più vicino
+    (2026-11-04 14:30 va all'Operazione Varco, 2026-11-04 12:00, non agli accessi del 2031)."""
+    def distanza(d):
+        attuale = missione(d['nome'])['parametri'].get('istante')
+        if not attuale:
+            return float('inf')
+        return abs(time.mktime(time.strptime(attuale[:16], '%Y-%m-%d %H:%M')) - time.mktime(time.strptime(istante, '%Y-%m-%d %H:%M')))
+    candidati = [d for d in database if 'istante' in missione(d['nome'])['parametri']]
+    return min(candidati, key=distanza) if candidati else None
+
+
 def missione(nome_db):
     """La missione di un database con i parametri in vigore (quelli aggiornati dalla centrale hanno la precedenza).
     Un database senza voce in missioni.json ha una missione vuota: il tool funziona lo stesso, senza regole."""
@@ -82,11 +94,63 @@ def e_risolutiva(m, domanda):
 
 
 # ------------------------------------------------------------------ aggiornamenti della centrale
-RE_ISTANTE = re.compile(r'\b(\d{4}-\d{2}-\d{2})[ t](\d{1,2}):(\d{2})\b')
-RE_ORA = re.compile(r'\b(?:alle|ore|orario)\s+(\d{1,2})[:.](\d{2})\b')
+# Il dato temporale (l'"adesso" della prova) arriva in chat in qualunque forma: «2026-11-04 14:30», «04/11/2026 ore 14:30»,
+# «sono le 14:30 del 4 novembre 2026», «data attuale: 2026-11-04T14:30». Si normalizza in AAAA-MM-GG hh:mm, il formato dei database.
+MESI = {'gennaio': 1, 'febbraio': 2, 'marzo': 3, 'aprile': 4, 'maggio': 5, 'giugno': 6, 'luglio': 7, 'agosto': 8,
+        'settembre': 9, 'ottobre': 10, 'novembre': 11, 'dicembre': 12}
+RE_DATA_ISO = re.compile(r'\b(\d{4})-(\d{1,2})-(\d{1,2})(?=\b|t)', re.I)
+RE_DATA_NUM = re.compile(r'\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b')
+RE_DATA_MESE = re.compile(r'\b(\d{1,2})(?:°|º)?\s+(' + '|'.join(MESI) + r')\s+(\d{4})\b', re.I)
+RE_ORARIO = re.compile(r'(?<![\d/.:-])(\d{1,2})[:.](\d{2})(?::\d{2})?(?![\d/.-]|:\d)')
+RE_ORA = re.compile(r'\b(?:alle|ore|orario|sono le|le)\s+(\d{1,2})[:.](\d{2})\b', re.I)
 RE_VARCO = re.compile(r'\bvarco\s+([a-z]-?\d+(?:-[a-z0-9]+)?)\b', re.I)
 RE_CANALE = re.compile(r'\b[Cc]anale\s+([A-Z][\w-]+)')     # "Canale Delta" (nome con la maiuscola)
-RE_AGGIORNAMENTO = re.compile(r'\b(centrale|aggiorn\w*|nuov[oiae]|cambi\w*|modific\w*|parametr\w*|imposta|usa|veicolo)\b', re.I)
+RE_AGGIORNAMENTO = re.compile(r'\b(centrale|aggiorn\w*|nuov[oiae]|cambi\w*|modific\w*|parametr\w*|imposta|usa|veicolo'
+                              r'|istante|data|ora|orario|adesso|attual\w*|corrent\w*|sono le|siamo|oggi|momento|riferimento)\b', re.I)
+
+
+def istante_in(testo, data_nota=None):
+    """L'istante scritto nel messaggio come 'AAAA-MM-GG hh:mm', oppure None. Con la sola ora («alle 14:30») vale la data_nota
+    (quella dell'istante in vigore); una data senza ora non basta: l'istante della missione è sempre data e ora."""
+    data = None
+    if m := RE_DATA_ISO.search(testo):
+        data = (int(m[1]), int(m[2]), int(m[3]))
+    elif m := RE_DATA_NUM.search(testo):
+        data = (int(m[3]), int(m[2]), int(m[1]))             # all'italiana: giorno/mese/anno
+    elif m := RE_DATA_MESE.search(testo):
+        data = (int(m[3]), MESI[m[2].lower()], int(m[1]))
+    senza_data = testo[:m.start()] + ' ' + testo[m.end():] if data else testo
+    o = RE_ORARIO.search(senza_data) if data else RE_ORA.search(testo)
+    if not o or int(o[1]) > 23 or int(o[2]) > 59:
+        return None
+    if data:
+        a, mese, g = data
+        if not (1 <= mese <= 12 and 1 <= g <= 31):
+            return None
+        return f'{a:04d}-{mese:02d}-{g:02d} {int(o[1]):02d}:{o[2]}'
+    return f'{data_nota[:10]} {int(o[1]):02d}:{o[2]}' if data_nota else None
+
+
+def istante_centrale():
+    """L'ultimo istante comunicato in chat ({'istante', 'quando'}), valido per tutta l'indagine, o None."""
+    return _leggi(FILE_PARAMETRI, {}).get('_centrale')
+
+
+def imposta_istante_centrale(istante):
+    with _LOCK:
+        tutti = _leggi(FILE_PARAMETRI, {})
+        tutti['_centrale'] = {'istante': istante, 'quando': time.strftime('%Y-%m-%d %H:%M:%S')}
+        REGISTRO.mkdir(exist_ok=True)
+        FILE_PARAMETRI.write_text(json.dumps(tutti, ensure_ascii=False, indent=1), encoding='utf-8')
+
+
+def comunica_istante(domanda):
+    """L'istante se il messaggio comunica il dato temporale («data attuale: 2026-11-04 14:30»), None se non lo fa
+    o se è una domanda («il permesso era valido il 2026-11-01 10:00?» chiede di quel momento, non cambia l'adesso)."""
+    if '?' in domanda or not RE_AGGIORNAMENTO.search(domanda):
+        return None
+    attuale = istante_centrale()
+    return istante_in(domanda, attuale and attuale['istante'])
 
 
 def aggiornamento_richiesto(domanda, m, valori=()):
@@ -95,12 +159,8 @@ def aggiornamento_richiesto(domanda, m, valori=()):
     if not RE_AGGIORNAMENTO.search(domanda) or not m.get('parametri') or '?' in domanda:
         return {}       # una domanda ("il veicolo usa il canale Omega?") non è una comunicazione della centrale
     nuovi, p = {}, m['parametri']
-    if 'istante' in p:
-        t = RE_ISTANTE.search(domanda)
-        if t:
-            nuovi['istante'] = f'{t[1]} {int(t[2]):02d}:{t[3]}'
-        elif (o := RE_ORA.search(domanda)) and p.get('istante'):
-            nuovi['istante'] = f'{p["istante"][:10]} {int(o[1]):02d}:{o[2]}'
+    if 'istante' in p and (t := istante_in(domanda, p.get('istante'))):
+        nuovi['istante'] = t
     if 'varco' in p and (v := RE_VARCO.search(domanda)):
         nuovi['varco'] = v[1].upper()
     if 'canale_veicolo' in p and re.search(r'\bcanale\b', domanda, re.I):

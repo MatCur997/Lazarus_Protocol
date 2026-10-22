@@ -631,10 +631,25 @@ class Gestore(BaseHTTPRequestHandler):
                          and motore.sembra_seguito(domanda) else None)
         if db_precedente:
             scelto = next((d for d in INDICE.database if d['nome'] == db_precedente), scelto)
+        # il dato temporale dato in chat ("data attuale: 2026-11-04 14:30") è l'adesso dell'indagine: vale per ogni risposta e,
+        # se il messaggio non nomina una missione, va al database con l'istante più vicino
+        istante = None if diretta else missioni.comunica_istante(domanda)
+        if istante and INDICE.database and sql_tool.punteggio_database(domanda, INDICE.database) == 0:
+            scelto = missioni.missione_per_istante(INDICE.database, istante) or scelto
         db = scelto['percorso'] if scelto else None
         missione = missioni.missione(scelto['nome']) if scelto else None
+        if istante:
+            missioni.imposta_istante_centrale(istante)
+            if not scelto:
+                diretta = (f'Dato temporale registrato: istante attuale {istante}. Lo userò come "adesso" in tutte le risposte.',
+                           'parametri')
         if scelto and not diretta:      # "la centrale aggiorna: istante 12:30, canale Delta": parametri, non dati
             nuovi = missioni.aggiornamento_richiesto(domanda, missione, sql_tool.valori_etichetta(db))
+            if 'istante' in nuovi:
+                missioni.imposta_istante_centrale(nuovi['istante'])
+            if not nuovi and istante:   # stesso istante già in vigore per la missione
+                diretta = (f'Dato temporale registrato: istante attuale {istante} (già in vigore per '
+                           f'{missione.get("titolo", scelto["nome"])}).', 'parametri')
             if nuovi:
                 modifiche = missioni.aggiorna_parametri(scelto['nome'], nuovi, 'chat')
                 diretta = ('Parametri della missione aggiornati (' + missione.get('titolo', scelto['nome']) + '): '
@@ -727,9 +742,11 @@ class Gestore(BaseHTTPRequestHandler):
         # altrimenti Ollama allarga il contesto e ricarica il modello)
         solo_db = bool(risultato_sql and (risultato_sql.get('passi') or risultato_sql.get('mappa')))
         fisso = diretta[0] if diretta else (motore.testo_mappa(risultato_sql) if risultato_sql and risultato_sql.get('mappa') else None)
-        # il dossier (elementi già verificati) non va nei prompt del tool SQL: sono già lunghi e le prove sono nel database
+        # il dossier (elementi già verificati) non va nei prompt del tool SQL: sono già lunghi e le prove sono nel database;
+        # nemmeno l'istante della chat: lì vale quello della missione (gli accessi del deposito sono nel 2031)
         note = '' if conversazione else '\n\n'.join(
-            x for x in (motore.note_per_prompt(INDICE, domanda_ricerca), '' if risultato_sql else self.dossier()) if x)
+            x for x in (motore.note_per_prompt(INDICE, domanda_ricerca, con_istante=not risultato_sql),
+                        '' if risultato_sql else self.dossier()) if x)
         messaggi = motore.costruisci_messaggi(domanda if conversazione else domanda_ricerca, fonti[:2] if solo_db else fonti, precedenti,
                                               conversazione, cronologia=[v for v in cronologia if not v.get('meta')],
                                               elementi_verificati=self.riepilogo_verificato() if riassunto else '',

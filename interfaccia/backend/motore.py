@@ -494,10 +494,19 @@ def testo_risultato_sql(r):
             'codice NON è valido. ' + ISTRUZIONI_RISPOSTA_SQL)
 
 
-def note_per_prompt(indice, domanda):
+def note_per_prompt(indice, domanda, con_istante=True):
     """Cosa va in testa al prompt delle domande sul caso: la cronologia dei documenti. Nessuna nota su quali file siano «sospetti» o «estranei»:
     il modello lo scopre leggendo le fonti, e l'utente lo scopre dalle sue risposte."""
-    return nota_giorni(indice)
+    return '\n\n'.join(x for x in (nota_istante() if con_istante else '', nota_giorni(indice)) if x)
+
+
+def nota_istante():
+    """Il dato temporale comunicato in chat: senza, "adesso", "oggi" o "è ancora valido?" non hanno un riferimento."""
+    c = missioni.istante_centrale()
+    if not c:
+        return ''
+    return (f'ISTANTE ATTUALE (comunicato in chat dalla centrale): {c["istante"]}. È il momento presente dell\'indagine: '
+            'usalo per "adesso", "oggi", "ora", "ancora valido", "già scaduto", "tra quanto" e per ogni calcolo di tempo trascorso o mancante.')
 
 
 def nota_giorni(indice):
@@ -652,6 +661,8 @@ def costruisci_messaggi(domanda, fonti, precedenti, conversazione=False, cronolo
                         nota_archivio='', risultato_sql=None):
     if conversazione:
         sistema = cfg.istruzioni_conversazione()
+        if nota := nota_istante():
+            sistema += f'\n\n{nota}'
         if cronologia:
             sistema += ('\n\nCRONOLOGIA della conversazione, dalla più vecchia alla più recente. Il messaggio attuale '
                         'NON ne fa parte: "appena chiesto" o "prima" indicano la voce con il numero più alto.\n'
