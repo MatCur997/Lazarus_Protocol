@@ -38,8 +38,9 @@ HYDE_SALTA_CON_IDENTIFICATORI = True   # la domanda ha parole rare (codici, nomi
 # documenti quasi identici è rumore. Misurato con misure/misura_ricerca.py: senza questa classifica il documento primo in BM25
 # con un margine netto veniva superato da brani solo simili per significato.
 PESI_RRF = {'bm25': 1.0, 'semantica': 1.0, 'hyde': 1.0, 'identificatori': 2.0, 'riscritta_bm25': 0.7, 'riscritta_semantica': 0.7}
-IDENT_DF_FRAZIONE = 0.002  # una parola è un identificatore se compare in meno di questa frazione dei brani...
-IDENT_DF_MIN = 3           # ...ma sempre se compare al massimo in questi brani
+IDENT_DF_FRAZIONE = 0.002  # una parola è un identificatore se compare in meno di questa frazione dei brani DEL CASO...
+IDENT_DF_MIN = 5           # ...ma sempre se compare al massimo in questi brani del caso. Il minimo conta quando i brani del caso sono pochi (centinaia):
+                           # con 3 un numero di pratica citato in 4 bollettini smetteva di essere un identificatore (misurato: 2 domande su codici perse su 40)
 IDENT_MAX_BRANI = 30       # lunghezza massima della classifica degli identificatori
 # Diversità dei brani scelti (MMR): con centinaia di documenti costruiti sullo stesso modello le varianti di un bollettino riempiono tutti
 # i posti e il documento diverso (un collaudo, un esito) resta fuori. 1 = nessuna diversificazione (i TOP_K migliori, come prima).
