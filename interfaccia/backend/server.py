@@ -624,6 +624,13 @@ class Gestore(BaseHTTPRequestHandler):
         domanda_ricerca = domanda if diretta else motore.riscrivi_domanda(modello, domanda, cronologia, strumenti, STATO['demo'])
         # più database caricati (accessi_g_4, archivio_recuperato...): si sceglie quello che la domanda riguarda
         scelto = sql_tool.scegli_database(domanda_ricerca, INDICE.database) if INDICE.database else None
+        # seguito di una risposta del tool SQL («e il suo codice?», «e l'altro terminale?»): torna allo stesso database anche se la
+        # domanda, da sola, non nomina codici, permessi o tabelle
+        ultima = next((v for v in reversed(cronologia) if not v.get('meta')), None)
+        db_precedente = ((ultima.get('sql') or {}).get('database') if ultima and not diretta and INDICE.database
+                         and motore.sembra_seguito(domanda) else None)
+        if db_precedente:
+            scelto = next((d for d in INDICE.database if d['nome'] == db_precedente), scelto)
         db = scelto['percorso'] if scelto else None
         missione = missioni.missione(scelto['nome']) if scelto else None
         if scelto and not diretta:      # "la centrale aggiorna: istante 12:30, canale Delta": parametri, non dati
@@ -639,8 +646,9 @@ class Gestore(BaseHTTPRequestHandler):
                            + '. Scrivili in chat (es. "la centrale comunica: istante 2026-11-04 12:30, canale del veicolo Delta") '
                            'o cambiali nel pannello Missione della pagina Schema logico.', 'parametri')
         al_database = bool(db) and not diretta and (motore.chiede_al_database(domanda_ricerca, INDICE.database)
-                                                    or sql_tool.punteggio_database(domanda_ricerca, INDICE.database) > 0)
-        if al_database and sql_tool.RE_SCRITTURA.search(domanda):   # il database è in sola lettura: niente SQL
+                                                    or sql_tool.punteggio_database(domanda_ricerca, INDICE.database) > 0
+                                                    or bool(db_precedente and scelto['nome'] == db_precedente))
+        if al_database and sql_tool.chiede_di_scrivere(domanda):   # il database è in sola lettura: niente SQL
             diretta = (f'Non posso cancellare né modificare dati: il database {scelto["nome"]} è in sola lettura '
                        'e il tool esegue soltanto query di lettura (SELECT). Posso cercare, contare e verificare.', 'sql-rifiuto')
         if diretta:
@@ -662,19 +670,41 @@ class Gestore(BaseHTTPRequestHandler):
                 pool.shutdown(wait=False)       # il thread finisce da solo; se la domanda non è sul caso il risultato non si legge
             conversazione = motore.controlla_pertinenza(INDICE, modello, domanda_ricerca, strumenti, STATO['demo'])
             riassunto = conversazione and bool(motore.RE_RIASSUNTO.search(motore._norma(domanda)))
+        # Mappa e piano a passi: la risposta viene dal database. La mappa la scrive il codice (i documenti non servono); il piano a passi
+        # non usa gli indizi dei dossier e alla risposta ne vanno solo 2 brani: ricerca senza HyDE (~2 s), il modello serve ai passi.
+        mappa = al_database and bool(sql_tool.RE_MAPPA.search(domanda_ricerca))
+        solo_database = al_database and (mappa or missioni.e_risolutiva(missione, domanda_ricerca))
         if ricerca and not conversazione:
             fonti = ricerca.result()
             strumenti += strumenti_ricerca
+        elif conversazione or mappa:
+            fonti = []
+            if mappa:
+                strumenti.append({'nome': 'fondi_risultati', 'ms': 0, 'dettaglio': 'mappa del database: documenti non cercati'})
         else:
-            fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, precedenti, strumenti, modello, STATO['demo'],
-                                                                riscritta=domanda_ricerca if domanda_ricerca != domanda else None)
+            fonti = motore.cerca_fonti(INDICE, domanda, precedenti, strumenti, None if solo_database else modello, STATO['demo'],
+                                       riscritta=domanda_ricerca if domanda_ricerca != domanda else None)
+        inviati = 0
         if al_database and not diretta and not STATO['demo']:
             # gli indizi dei dossier (persona, deposito, settore, pratica) arrivano dalla RAG; il modello scrive la query
             t = time.perf_counter()
+            for s in strumenti:         # si vedono subito: il tool SQL può durare decine di secondi
+                invia({'tipo': 'strumento', **s})
+            inviati = len(strumenti)
+
+            def avanzamento(n, totale, p):
+                """Ogni passo del piano appena finito va alla pagina, mentre il modello scrive la query del successivo."""
+                esito = f'errore: {p["errore"]}' if p['errore'] else f'{len(p["righe"])} righe'
+                try:
+                    invia({'tipo': 'strumento', 'nome': 'interroga_database', 'passo': n, 'totale': totale, 'ms': ms(t),
+                           'dettaglio': f'passo {n} di {totale} · {p["scopo"]}: {esito} · {len(p["tentativi"])} tentativi'})
+                except OSError:
+                    pass                # pagina chiusa: il piano finisce lo stesso e va nello storico
             try:
                 with INDICE.lock:   # tutti i documenti caricati, per collegare i valori del database ai dossier
                     documenti = [(d.get('id_interno') or d['id'], d['testo']) for d in INDICE.documenti.values()]
-                risultato_sql = sql_tool.agente_sql(modello, domanda_ricerca, contesto_da_fonti(fonti), db, documenti, missione)
+                risultato_sql = sql_tool.agente_sql(modello, domanda_ricerca, contesto_da_fonti(fonti), db, documenti, missione,
+                                                    avanzamento=avanzamento)
                 if risultato_sql.get('mappa'):
                     dettaglio = f'mappa di {scelto["nome"]}: {len(risultato_sql.get("relazioni", []))} relazioni'
                 elif risultato_sql.get('passi'):
@@ -689,7 +719,7 @@ class Gestore(BaseHTTPRequestHandler):
                 dettaglio = f'errore: {e}'
             strumenti.append({'nome': 'interroga_database', 'ms': ms(t), 'dettaglio': dettaglio})
         ricerca_ms = ms(t0)
-        for s in strumenti:
+        for s in strumenti[inviati:]:
             invia({'tipo': 'strumento', **s})
         invia({'tipo': 'fonti', 'fonti': fonti})
 

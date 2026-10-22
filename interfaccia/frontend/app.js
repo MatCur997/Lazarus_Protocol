@@ -438,7 +438,9 @@ async function chiedi(domanda, rieseguitaDa = null) {
       for (const riga of righe) {
         if (!riga.trim()) continue;
         const ev = JSON.parse(riga);
-        if (ev.tipo === 'fonti') $('.stato-ricerca', el).textContent = ev.fonti.length ? `${ev.fonti.length} brani trovati · scrivo la risposta…` : 'scrivo la risposta…';
+        // piano a passi del tool SQL: ogni passo finito si vede subito, mentre il modello scrive la query del successivo
+        if (ev.tipo === 'strumento' && ev.passo) $('.stato-ricerca', el).textContent = `${ev.dettaglio}${ev.passo < ev.totale ? ' · scrivo la query del passo dopo…' : ''}`;
+        else if (ev.tipo === 'fonti') $('.stato-ricerca', el).textContent = ev.fonti.length ? `${ev.fonti.length} brani trovati · scrivo la risposta…` : 'scrivo la risposta…';
         else if (ev.tipo === 'token') { testo += ev.testo; corpo.innerHTML = formatta(testo); scorri(); }
         else if (ev.tipo === 'fine') {
           completaRisposta(el, ev.voce);

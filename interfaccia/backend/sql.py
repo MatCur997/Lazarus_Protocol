@@ -32,6 +32,19 @@ RE_SCRITTURA = re.compile(
     r'|\b(cancell|elimin|rimuov|modific|aggiorn|inserisc|aggiung|svuot|sovrascriv|altera|forza)\w*\b.{0,40}?'
     r'\b(database|db|tabell\w*|dat[io]\b|rig[ah]e?\b|record|permess\w*|codic\w*|valor\w*|accessi|autorizzazion\w*|'
     r'abilitazion\w*|revoc\w*|sospension\w*|stato|chiav\w*)', re.I)
+RE_PARTICIPIO = re.compile(r'(?:at|ut|it)[oaie]$')
+
+
+def chiede_di_scrivere(domanda):
+    """Vero se il messaggio chiede di CAMBIARE i dati («cancella i permessi», «modifica lo stato», DROP TABLE). Un verbo al participio
+    parla di una modifica già avvenuta: «chi ha aggiornato lo stato del permesso?» è una domanda sui dati, non una scrittura
+    (prima veniva rifiutata). Il database resta comunque in sola lettura: questo controllo decide solo la risposta."""
+    for m in RE_SCRITTURA.finditer(domanda):
+        if m[1] or not RE_PARTICIPIO.search(re.match(r'\w+', m[0])[0].lower()):     # comando SQL, o verbo non al participio
+            return True
+    return False
+
+
 RE_ORDINE_ARBITRARIO = re.compile(r'\border\s+by\b[^;]*\blimit\s+1\b', re.I | re.S)
 RE_MAPPA = re.compile(r'\b(mappa|dizionario|struttura|schema)\b.{0,30}\b(tabell\w*|database|dati|archivio)\b'
                       r'|\b(tabell\w*)\b.{0,20}\b(significat\w*|relazion\w*|collegament\w*)\b', re.I)
@@ -543,11 +556,12 @@ def _righe_compatte(p, massimo=30):
     return ' | '.join(p['colonne']) + '\n' + '\n'.join(righe) + (f'\n... altre {len(p["righe"]) - massimo} righe' if len(p['righe']) > massimo else '')
 
 
-def agente_sql(modello, domanda, indizi, percorso, documenti=(), m=None):
+def agente_sql(modello, domanda, indizi, percorso, documenti=(), m=None, avanzamento=None):
     """Interroga il database per la domanda. Tre modi:
     - mappa: "mostrami la mappa delle tabelle" -> il profilo completo, senza query;
     - piano a passi (domande risolutive di una missione con "passi"): una query per passo, esiti calcolati, sintesi;
     - una query (tutto il resto: esplorazione, verifiche, codici).
+    avanzamento(n, totale, passo): chiamata dopo ogni passo del piano, per mostrarlo nella pagina mentre il modello scrive il successivo.
     Ritorna {sql, colonne, righe, altre_righe, errore, tentativi, passi?, sintesi?, mappa?, valori_citati, database, parametri}."""
     m = m or missioni.missione(Path(percorso).name)
     base = {'database': Path(percorso).name, 'parametri': m['parametri'], 'titolo': m.get('titolo')}
@@ -567,6 +581,8 @@ def agente_sql(modello, domanda, indizi, percorso, documenti=(), m=None):
                                                     f'{missioni.compila(x["obiettivo"], m["parametri"])}'}]
             r = _una_query(modello, messaggi, percorso, m['parametri'], passo=True)
             passi.append({'scopo': missioni.compila(x['scopo'], m['parametri']), **r})
+            if avanzamento:
+                avanzamento(len(passi), len(m['passi']), passi[-1])
         sintesi = sintesi_varco(passi, m) if (m.get('verdetto') or {}).get('tipo') == 'varco' else ''
         ultimo = passi[-1]
         return {**base, **ultimo, 'errore': next((p['errore'] for p in passi if p['errore']), None), 'passi': passi,

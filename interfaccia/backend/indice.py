@@ -306,7 +306,11 @@ class Indice:
                 if p.is_file() and p.suffix.lower() in cfg.ESTENSIONI_DATABASE:
                     if e_database(p):   # database (es. accessi_g_4.sqlite): non è testo, lo usa il tool SQL
                         rel = p.relative_to(cartella) if p.is_relative_to(cartella) else p
-                        database.append({'percorso': str(p), 'nome': p.name, 'giorno': giorno_di(rel, '', p.stem)})
+                        # giorno dalle cartelle, altrimenti dal nome del file (accessi_g_4.sqlite caricato da solo)
+                        giorno = giorno_di(rel, '', p.stem)
+                        if giorno is None and (g := RE_GIORNO_CARTELLA.search(p.stem)):
+                            giorno = int(g[1])
+                        database.append({'percorso': str(p), 'nome': p.name, 'giorno': giorno})
                     continue
                 if p.is_file() and p.suffix.lower() in ESTENSIONI_OK - {'.zip'}:
                     try:

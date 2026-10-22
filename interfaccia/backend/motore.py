@@ -538,15 +538,20 @@ RE_MANIPOLAZIONE = re.compile(
     r'|\b(stampa|mostra\w*|rivela\w*|ripeti|scrivi\w*|dimmi|dammi|copia|elenca)\b.{0,25}\b(tuo|tue|tuoi|il|le)\b.{0,15}'
     r'\b(prompt|istruzion\w* (di sistema|iniziali|nascost\w*|segret\w*|interne)|system prompt|messaggio di sistema|configurazione)'
     r'|\b(tuo|tue) (prompt|istruzioni)\b|\bsystem prompt\b|\bprompt di sistema\b'
-    r'|\bmodalita (sviluppatore|developer|debug|admin\w*|amministrat\w*|dio|senza (regole|filtri|limiti))\b|\bjailbreak\b|\bdan\b'
+    r'|\bmodalita (sviluppatore|developer|admin\w*|amministrat\w*|dio|senza (regole|filtri|limiti))\b|\bjailbreak\b'
     r'|\b(da (adesso|ora) in poi|da (adesso|ora)|d ora in poi)\b.{0,20}\b(sei|diventi|sarai|agisci|fingi|comportati)\b'
     r'|\bnon sei piu\b|\bfingi di essere\b|\bimpersona\b')
 RIFIUTO_MANIPOLAZIONE = ('Resto l\'Investigatore del caso Lazarus: non cambio ruolo, non ignoro le mie regole e non mostro le '
                          'istruzioni interne. Posso aiutarti con l\'indagine: documenti, persone, giorni, codici di accesso.')
 
 
+# «DAN» (il jailbreak "Do Anything Now") solo in maiuscolo: «dan» minuscolo dopo _norma era anche il nome Dan. «Modalità debug» non è più
+# un tentativo: è il pulsante del team nell'interfaccia.
+RE_DAN = re.compile(r'\bDAN\b')
+
+
 def tentativo_di_manipolazione(domanda):
-    return bool(RE_MANIPOLAZIONE.search(_norma(domanda)))
+    return bool(RE_MANIPOLAZIONE.search(_norma(domanda)) or RE_DAN.search(domanda))
 
 
 # domande su «tutti i file»: il modello li riceve interi se ci stanno nel contesto

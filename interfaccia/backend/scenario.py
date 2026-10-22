@@ -8,7 +8,7 @@ Resta fuori da qui ciò che è dato, non codice: le persone escluse a mano (`int
 import re
 
 # ---- Il giorno dell'indagine di un documento (da indice.py)
-RE_GIORNO_CARTELLA = re.compile(r'(?:giorn[oi]?|(?<![a-z])g)[ _-]*0*(\d{1,2})(?!\d)', re.I)   # Dati_giorno_2, Imprevisti_g_4, G2-imprevisti
+RE_GIORNO_CARTELLA = re.compile(r'(?:giornat[ae]|giorn[oi]?|(?<![a-z])g)[ _-]*0*(\d{1,2})(?!\d)', re.I)   # Dati_giorno_2, Imprevisti_g_4, G2-imprevisti, GIORNATA 4
 
 RE_GIORNO_TESTO = re.compile(r'giorno\s+operativo\s+0*(\d{1,2})(?!\d)', re.I)      # "giorno operativo 02"
 

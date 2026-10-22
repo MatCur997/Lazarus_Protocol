@@ -180,7 +180,14 @@ solo la libreria standard (più `requests`) nel backend.
   - **Risposta**: codice con [DB], dossier con i loro ID; sotto la risposta il riquadro con query, passi ed esiti;
     "mostrami la query" la ripete. Ogni interrogazione va in `registro/missione_log.jsonl` con i parametri in vigore;
     ripetendo la stessa domanda il registro dice se il risultato è cambiato e quali parametri sono diversi (pagina
-    Schema logico, "Ripeti test"). Richieste di cambiare i dati: rifiutate.
+    Schema logico, "Ripeti test"). Richieste di cambiare i dati: rifiutate (`chiede_di_scrivere`: un verbo al participio, «chi ha
+    aggiornato lo stato?», è una domanda sui dati, non una scrittura).
+  - **Seguiti**: lo smistamento usa la domanda riscritta (`domanda_ricerca`); un seguito («e il suo codice?») di una risposta passata dal
+    tool torna allo stesso database.
+  - **Tempi**: i passi del piano arrivano alla pagina appena finiti (`avanzamento` in `agente_sql`, evento `strumento` con `passo`).
+    Per la mappa i documenti non si cercano; per il piano a passi si cercano senza HyDE (alla risposta ne vanno solo 2 brani). Le query
+    le scrive sempre il modello: nessun riuso di query o risultati.
+  - **Giorno di un database**: dalle cartelle (`GIORNATA 4`, `Imprevisti_g_4`), altrimenti dal nome del file (`accessi_g_4.sqlite`).
 - **Quanti documenti vede il modello**: se i documenti pertinenti stanno in `SOGLIA_CARATTERI` e `SOGLIA_BRANI` (non sono numeri fissi: un terzo di `NUM_CTX` per i documenti,
   `FRAZIONE_CONTESTO_DOCUMENTI` e `CARATTERI_PER_TOKEN` in `config.py`; con NUM_CTX 12288 fanno 12288 caratteri e 40 brani)
   (40) li riceve tutti, altrimenti i `TOP_K` (10) brani migliori; mai più di `MAX_BRANI_PER_DOC` (2) brani per documento
