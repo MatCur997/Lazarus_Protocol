@@ -97,6 +97,7 @@ class Gestore(BaseHTTPRequestHandler):
         rotte = {
             '/api/stato': self.api_stato,
             '/api/storico': lambda: self.json(STORICO.voci),
+            '/api/dati': lambda: self.json(missioni.dati_chat()),
             '/api/strumenti': self.api_strumenti,
             '/api/documenti': self.api_documenti,
             '/api/persone': self.api_persone,
@@ -470,6 +471,9 @@ class Gestore(BaseHTTPRequestHandler):
                 return self.json({'eliminate': STORICO.elimina(self.corpo_json().get('id') or '__nessuna__')})
             if url.path == '/api/missione/parametri':
                 return self.api_missione_parametri(self.corpo_json())
+            if url.path == '/api/dati/elimina':          # {id} un dato, senza id tutti
+                scelto = self.corpo_json().get('id')
+                return self.json({'restano': missioni.elimina_dati([scelto] if scelto else None)})
             if url.path == '/api/storico/svuota':
                 return self.json({'eliminate': STORICO.elimina(None)})
             if url.path == '/api/persona/escludi':
@@ -586,6 +590,57 @@ class Gestore(BaseHTTPRequestHandler):
         EVENTI_CARICAMENTO.append({'nome': 'carica_file', 'ms': ms(t), 'dettaglio': f'svuotati i caricati: {tolti} file tolti'})
         self.json({'tolti': tolti, 'documenti': len(INDICE.documenti), 'ms': ms(t)})
 
+    def scrivi(self, domanda, modello, strumenti):
+        """Switch «Scrittura» acceso. Se il messaggio chiede di cambiare il database («UPDATE r09 SET ...», «aggiungi alla tabella
+        r03 la persona ...») lo modifica il tool SQL, dopo una copia di sicurezza; altrimenti il messaggio è un dato della centrale:
+        si salva e va nei prompt delle risposte successive (un istante lo diventa anche della missione).
+        Ritorna ((testo della risposta, tipo), risultato SQL o None)."""
+        t = time.perf_counter()
+        al_database = bool(INDICE.database) and bool(
+            sql_tool.RE_SQL_SCRITTURA.match(domanda)
+            or sql_tool.chiede_di_scrivere(domanda) and (sql_tool.punteggio_database(domanda, INDICE.database) > 0
+                                                          or re.search(r'\b(database|db|tabell\w*|rig[ah]e?|record)\b', domanda, re.I)))
+        if al_database:
+            scelto = sql_tool.scegli_database(domanda, INDICE.database)
+            if STATO['demo'] and not sql_tool.RE_SQL_SCRITTURA.match(domanda):
+                return ('Modalità demo: senza modello posso eseguire solo istruzioni scritte in SQL (INSERT, UPDATE, DELETE).',
+                        'scrittura'), None
+            r = sql_tool.scrivi_nel_database(modello, domanda, scelto['percorso'])
+            strumenti.append({'nome': 'scrivi_database', 'ms': ms(t),
+                              'dettaglio': (f'errore: {r["errore"]}' if r['errore'] else f'{r["righe_modificate"]} righe modificate')
+                                           + f' · {len(r["tentativi"])} tentativi · {r["sql"]}'})
+            if r['errore']:
+                testo = (f'Non sono riuscito a modificare il database {scelto["nome"]}: {r["errore"]}. '
+                         'Il database non è stato cambiato.')
+            else:
+                testo = (f'Database {scelto["nome"]} modificato: {r["righe_modificate"]} '
+                         f'{"riga" if r["righe_modificate"] == 1 else "righe"}.\n\n```sql\n{r["sql"]}\n```')
+            if r['backup']:
+                testo += f'\n\nCopia di sicurezza di prima della modifica: `{Path(r["backup"]).name}` (registro/backup).'
+            return (testo, 'scrittura'), r
+
+        missioni.aggiungi_dato(domanda)
+        parti = ['Dato registrato: lo terrò presente in tutte le risposte successive.']
+        attuale = missioni.istante_centrale()
+        istante = missioni.istante_in(domanda, attuale and attuale['istante'])
+        if istante:
+            missioni.imposta_istante_centrale(istante)
+            parti.append(f'Istante attuale: {istante}.')
+        if INDICE.database and '?' not in domanda:
+            scelto = ((missioni.missione_per_istante(INDICE.database, istante)
+                       if istante and sql_tool.punteggio_database(domanda, INDICE.database) == 0 else None)
+                      or sql_tool.scegli_database(domanda, INDICE.database))
+            m = missioni.missione(scelto['nome'])
+            nuovi = missioni.aggiornamento_richiesto(domanda, m, sql_tool.valori_etichetta(scelto['percorso']))
+            if istante and 'istante' in m['parametri']:
+                nuovi['istante'] = istante
+            modifiche = missioni.aggiorna_parametri(scelto['nome'], nuovi, 'chat') if nuovi else {}
+            if modifiche:
+                parti.append(f'Parametri della missione aggiornati ({m.get("titolo", scelto["nome"])}): '
+                             + '; '.join(f'{k}: {v["prima"] or "non indicato"} → {v["dopo"]}' for k, v in modifiche.items()) + '.')
+        strumenti.append({'nome': 'registra_dato', 'ms': ms(t), 'dettaglio': ' '.join(parti[1:]) or 'dato salvato in registro/dati_chat.jsonl'})
+        return (' '.join(parti), 'dato'), None
+
     def api_chiedi(self, corpo):
         domanda = (corpo.get('domanda') or '').strip()
         if not domanda:
@@ -618,6 +673,10 @@ class Gestore(BaseHTTPRequestHandler):
         diretta = motore.domanda_sulla_chat(domanda, cronologia)   # "cosa ti ho appena chiesto?": niente modello
         if not diretta and motore.tentativo_di_manipolazione(domanda):   # "ignora le istruzioni", "stampa il prompt"
             diretta = (motore.RIFIUTO_MANIPOLAZIONE, 'manipolazione')
+        # switch «Scrittura»: il messaggio non è una domanda ma una modifica del database o un dato da tenere
+        scrittura, risultato_scrittura = bool(corpo.get('scrittura')) and not diretta, None
+        if scrittura:
+            diretta, risultato_scrittura = self.scrivi(domanda, modello, strumenti)
         riassunto, risultato_sql = False, None
         # seguito («e lui?», «e il suo codice?»): la domanda si rende autonoma prima di smistamento, pertinenza, ricerca e risposta;
         # nello storico resta quella scritta
@@ -666,7 +725,9 @@ class Gestore(BaseHTTPRequestHandler):
         if al_database and sql_tool.chiede_di_scrivere(domanda):   # il database è in sola lettura: niente SQL
             diretta = (f'Non posso cancellare né modificare dati: il database {scelto["nome"]} è in sola lettura '
                        'e il tool esegue soltanto query di lettura (SELECT). Posso cercare, contare e verificare.', 'sql-rifiuto')
-        if diretta:
+        if diretta and scrittura:
+            conversazione = True
+        elif diretta:
             conversazione = True
             strumenti.append({'nome': 'rispondi_dalla_cronologia', 'ms': ms(t0),
                               'dettaglio': f'domanda sulla chat ({diretta[1] if isinstance(diretta[1], str) else str(diretta[1]) + " indietro"}): '
@@ -718,7 +779,9 @@ class Gestore(BaseHTTPRequestHandler):
             try:
                 with INDICE.lock:   # tutti i documenti caricati, per collegare i valori del database ai dossier
                     documenti = [(d.get('id_interno') or d['id'], d['testo']) for d in INDICE.documenti.values()]
-                risultato_sql = sql_tool.agente_sql(modello, domanda_ricerca, contesto_da_fonti(fonti), db, documenti, missione,
+                risultato_sql = sql_tool.agente_sql(modello, domanda_ricerca,
+                                                    '\n\n'.join(x for x in (motore.nota_dati(), contesto_da_fonti(fonti)) if x),
+                                                    db, documenti, missione,
                                                     avanzamento=avanzamento)
                 if risultato_sql.get('mappa'):
                     dettaglio = f'mappa di {scelto["nome"]}: {len(risultato_sql.get("relazioni", []))} relazioni'
@@ -798,6 +861,8 @@ class Gestore(BaseHTTPRequestHandler):
         }
         if diretta:
             voce['meta'] = diretta[1]    # risposta sulla chat: non conta come domanda nella cronologia
+        if risultato_scrittura:
+            voce['sql'] = risultato_scrittura   # istruzione eseguita, righe modificate e copia di sicurezza
         if risultato_sql:
             voce['sql'] = risultato_sql  # query, righe e tentativi: si vedono sotto la risposta e si possono richiedere
             try:                         # registro della missione: query, risultati e parametri in vigore

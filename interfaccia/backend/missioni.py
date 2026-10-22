@@ -101,7 +101,7 @@ MESI = {'gennaio': 1, 'febbraio': 2, 'marzo': 3, 'aprile': 4, 'maggio': 5, 'giug
 RE_DATA_ISO = re.compile(r'\b(\d{4})-(\d{1,2})-(\d{1,2})(?=\b|t)', re.I)
 RE_DATA_NUM = re.compile(r'\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b')
 RE_DATA_MESE = re.compile(r'\b(\d{1,2})(?:°|º)?\s+(' + '|'.join(MESI) + r')\s+(\d{4})\b', re.I)
-RE_ORARIO = re.compile(r'(?<![\d/.:-])(\d{1,2})[:.](\d{2})(?::\d{2})?(?![\d/.-]|:\d)')
+RE_ORARIO = re.compile(r'(?<![\d/.:-])(\d{1,2})[:.](\d{2})(?::\d{2})?(?![\d/-]|[.:]\d)')    # «09:15.» a fine frase vale
 RE_ORA = re.compile(r'\b(?:alle|ore|orario|sono le|le)\s+(\d{1,2})[:.](\d{2})\b', re.I)
 RE_VARCO = re.compile(r'\bvarco\s+([a-z]-?\d+(?:-[a-z0-9]+)?)\b', re.I)
 RE_CANALE = re.compile(r'\b[Cc]anale\s+([A-Z][\w-]+)')     # "Canale Delta" (nome con la maiuscola)
@@ -142,6 +142,39 @@ def imposta_istante_centrale(istante):
         tutti['_centrale'] = {'istante': istante, 'quando': time.strftime('%Y-%m-%d %H:%M:%S')}
         REGISTRO.mkdir(exist_ok=True)
         FILE_PARAMETRI.write_text(json.dumps(tutti, ensure_ascii=False, indent=1), encoding='utf-8')
+
+
+# ------------------------------------------------------------------ dati comunicati in chat (modo scrittura)
+# Con lo switch «Scrittura» acceso un messaggio non è una domanda: è un dato della centrale o del professore, da tenere per le
+# risposte successive. Si salvano in registro/dati_chat.jsonl e vanno in testa a ogni prompt.
+FILE_DATI = REGISTRO / 'dati_chat.jsonl'
+DATI_NEL_PROMPT = 20        # gli ultimi N dati: oltre, il prompt crescerebbe senza limite
+
+
+def aggiungi_dato(testo):
+    voce = {'id': hashlib.sha1(f'{time.time()}{testo}'.encode()).hexdigest()[:10], 'quando': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'testo': testo}
+    with _LOCK:
+        REGISTRO.mkdir(exist_ok=True)
+        with FILE_DATI.open('a', encoding='utf-8') as f:
+            f.write(json.dumps(voce, ensure_ascii=False) + '\n')
+    return voce
+
+
+def dati_chat():
+    try:
+        return [json.loads(r) for r in FILE_DATI.read_text(encoding='utf-8').splitlines() if r.strip()]
+    except (OSError, ValueError):
+        return []
+
+
+def elimina_dati(ids=None):
+    """Toglie i dati con questi id (tutti se ids è None). Ritorna quanti ne restano."""
+    with _LOCK:
+        restano = [] if ids is None else [d for d in dati_chat() if d['id'] not in set(ids)]
+        REGISTRO.mkdir(exist_ok=True)
+        FILE_DATI.write_text(''.join(json.dumps(d, ensure_ascii=False) + '\n' for d in restano), encoding='utf-8')
+        return len(restano)
 
 
 def comunica_istante(domanda):

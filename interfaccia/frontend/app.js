@@ -423,7 +423,7 @@ async function chiedi(domanda, rieseguitaDa = null) {
     const r = await fetch('/api/chiedi', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       // vista = scambi visibili in chat: sono la memoria per "cosa ti ho appena chiesto?" (Pulisci la vista la azzera)
-      body: JSON.stringify({ domanda, modello: $('#modello').value, rieseguita_da: rieseguitaDa, vista: leggiVista() }),
+      body: JSON.stringify({ domanda, modello: $('#modello').value, rieseguita_da: rieseguitaDa, vista: leggiVista(), scrittura: inScrittura() }),
     });
     if (!r.ok) throw new Error((await r.json()).errore);
     const lettore = r.body.getReader();
@@ -492,6 +492,17 @@ area.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) 
 $('#invia').addEventListener('click', invia);
 $('#pulisci').addEventListener('click', benvenuto);
 
+// switch «Scrittura»: non si ricorda tra una visita e l'altra, così nessuno modifica il database senza accorgersene
+const PLACEHOLDER_DOMANDA = area.placeholder;
+const inScrittura = () => $('#scrittura').getAttribute('aria-checked') === 'true';
+$('#scrittura').addEventListener('click', () => {
+  const acceso = !inScrittura();
+  $('#scrittura').setAttribute('aria-checked', String(acceso));
+  $('.input-chat').classList.toggle('scrittura', acceso);
+  area.placeholder = acceso ? 'Scrivi un dato da registrare (es. "data attuale: 2026-11-04 14:30") o una modifica al database…' : PLACEHOLDER_DOMANDA;
+  area.focus();
+});
+
 // ------------------------------------------------------------- file (+)
 $('#piu').addEventListener('click', () => $('#file').click());
 $('#file').addEventListener('change', (e) => { carica([...e.target.files]); e.target.value = ''; });
@@ -513,6 +524,7 @@ function tabellaSql(colonne, righe, massimo = 20) {
 function bloccoSql(s) {
   const n = (s.tentativi || []).length;
   if (s.mappa) return `<details class="sql-blocco"><summary>Mappa del database ${esc(s.database)} · profilo di tutte le tabelle</summary><pre class="md-codice"><code>${esc(s.mappa)}</code></pre></details>`;
+  if (s.scrittura) return `<details class="sql-blocco"${s.errore ? ' open' : ''}><summary>Modifica del database ${esc(s.database)} · ${s.errore ? 'errore' : `${s.righe_modificate} righe modificate`} · ${n} tentativi</summary><pre class="md-codice"><code>${esc(s.sql || '(nessuna istruzione valida)')}</code></pre>${s.errore ? `<div class="errore">${esc(s.errore)}</div>` : ''}${s.backup ? `<div class="fila">copia di sicurezza: ${esc(s.backup)}</div>` : ''}</details>`;
   if (s.passi && s.passi.length) {
     return `<details class="sql-blocco"${s.errore ? ' open' : ''}><summary>Piano SQL a ${s.passi.length} passi sul database ${esc(s.database)} · ${n} tentativi</summary>`
       + (s.sintesi ? `<pre class="sql-sintesi">${esc(s.sintesi)}</pre>` : '')

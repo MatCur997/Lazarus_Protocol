@@ -497,7 +497,17 @@ def testo_risultato_sql(r):
 def note_per_prompt(indice, domanda, con_istante=True):
     """Cosa va in testa al prompt delle domande sul caso: la cronologia dei documenti. Nessuna nota su quali file siano «sospetti» o «estranei»:
     il modello lo scopre leggendo le fonti, e l'utente lo scopre dalle sue risposte."""
-    return '\n\n'.join(x for x in (nota_istante() if con_istante else '', nota_giorni(indice)) if x)
+    return '\n\n'.join(x for x in (nota_istante() if con_istante else '', nota_dati(), nota_giorni(indice)) if x)
+
+
+def nota_dati():
+    """I dati scritti in chat con lo switch «Scrittura»: valgono come fatti comunicati dalla centrale."""
+    dati = missioni.dati_chat()[-missioni.DATI_NEL_PROMPT:]
+    if not dati:
+        return ''
+    return ('DATI COMUNICATI IN CHAT dalla centrale (fatti certi, dal più vecchio al più recente: se due si contraddicono vale il più '
+            'recente). Usali nelle risposte insieme alle fonti e citali come [dato della centrale]:\n'
+            + '\n'.join(f'- ({d["quando"]}) {d["testo"]}' for d in dati))
 
 
 def nota_istante():
@@ -661,8 +671,9 @@ def costruisci_messaggi(domanda, fonti, precedenti, conversazione=False, cronolo
                         nota_archivio='', risultato_sql=None):
     if conversazione:
         sistema = cfg.istruzioni_conversazione()
-        if nota := nota_istante():
-            sistema += f'\n\n{nota}'
+        for nota in (nota_istante(), nota_dati()):
+            if nota:
+                sistema += f'\n\n{nota}'
         if cronologia:
             sistema += ('\n\nCRONOLOGIA della conversazione, dalla più vecchia alla più recente. Il messaggio attuale '
                         'NON ne fa parte: "appena chiesto" o "prima" indicano la voce con il numero più alto.\n'

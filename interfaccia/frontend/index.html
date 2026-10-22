@@ -89,6 +89,9 @@
         <input type="file" id="cartella" hidden webkitdirectory multiple>
         <button class="btn-tondo piu svuota" id="svuota-caricati-chat" title="Togli tutti i documenti caricati" hidden>
           <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+        <button class="switch-scrittura" id="scrittura" role="switch" aria-checked="false"
+          title="Modo scrittura: il messaggio non è una domanda. Se chiede di modificare il database (INSERT, UPDATE, DELETE o a parole) lo cambia, dopo una copia di sicurezza; altrimenti è un dato della centrale (es. l'istante attuale) che il chatbot terrà in tutte le risposte">
+          <span class="levetta"></span><span>Scrittura</span></button>
         <textarea id="domanda" rows="1" placeholder="Chiedi all'investigatore…  (Invio per inviare, Maiusc+Invio per andare a capo)"></textarea>
         <button class="btn-tondo invia" id="invia" title="Invia"><svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button>
       </div>

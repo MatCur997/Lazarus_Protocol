@@ -279,6 +279,17 @@ details.dett-strumenti .passo { font-size: 11.5px; }
 .btn-tondo.svuota:hover { color: var(--errore); border-color: var(--errore); }
 textarea#domanda { flex: 1; resize: none; background: var(--sfondo); border: 1px solid var(--bordo); border-radius: 2px; padding: 10px 14px; outline: 0; max-height: 140px; min-height: 40px; line-height: 1.45; font-size: 12.5px; }
 textarea#domanda:focus { border-color: var(--testo); }
+/* switch «Scrittura»: acceso, i messaggi sono dati o modifiche del database, non domande */
+.switch-scrittura { display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 10px; flex: none; border: 1px solid var(--bordo);
+  border-radius: 2px; background: none; color: var(--tenue); font-size: 11.5px; cursor: pointer; }
+.switch-scrittura:hover { color: var(--testo); border-color: var(--testo); }
+.switch-scrittura .levetta { position: relative; width: 26px; height: 14px; border-radius: 7px; background: var(--bordo); transition: background .15s; }
+.switch-scrittura .levetta::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--pannello); transition: transform .15s; }
+.switch-scrittura[aria-checked="true"] { color: var(--bordeaux-2); border-color: var(--bordeaux-2); }
+.switch-scrittura[aria-checked="true"] .levetta { background: var(--bordeaux-2); }
+.switch-scrittura[aria-checked="true"] .levetta::after { transform: translateX(12px); }
+.input-chat.scrittura textarea#domanda { border-color: var(--bordeaux-2); }
 textarea#domanda::placeholder, input::placeholder { color: var(--debole); }
 textarea#domanda::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* il monospazio è più largo: una riga sola */
 .trascina { position: absolute; inset: 0; background: var(--velo); border: 2px dashed var(--testo); border-radius: var(--raggio);

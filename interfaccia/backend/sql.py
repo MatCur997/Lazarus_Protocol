@@ -12,6 +12,7 @@ import csv
 import json
 import re
 import sqlite3
+import time
 from pathlib import Path
 
 import config as cfg
@@ -49,7 +50,10 @@ def chiede_di_scrivere(domanda):
 
 RE_ORDINE_ARBITRARIO = re.compile(r'\border\s+by\b[^;]*\blimit\s+1\b', re.I | re.S)
 RE_MAPPA = re.compile(r'\b(mappa|dizionario|struttura|schema)\b.{0,30}\b(tabell\w*|database|dati|archivio)\b'
-                      r'|\b(tabell\w*)\b.{0,20}\b(significat\w*|relazion\w*|collegament\w*)\b', re.I)
+                      r'|\b(tabell\w*)\b.{0,20}\b(significat\w*|relazion\w*|collegament\w*)\b'
+                      # "quali tabelle ci sono nel database?", "elenco delle tabelle": la risposta è lo schema, non una query sui dati
+                      r'|\b(quali|che|quante|elenc\w*|lista)\b.{0,15}\btabell\w*'
+                      r'|\btabell\w*\b.{0,15}\b(ci sono|contiene|ha)\b', re.I)
 
 
 def e_database(percorso):
@@ -487,6 +491,17 @@ def annota(colonne, righe, parametri, completo=False):
     return list(colonne) + ['esito'], nuove
 
 
+def _bloccata(r, t):
+    """Sospensione attiva o revoca efficace in QUESTA riga. Con due sospensioni (o due revoche) la stessa persona (o permesso)
+    ha due righe: ne basta una bloccata per escluderla, la riga con l'altra sospensione non la rende valida."""
+    for k, v in r.items():
+        if k.endswith('_inizio') and k[:-7].startswith(NEGATIVI) and _attivo(v, r.get(k[:-7] + '_fine'), t):
+            return True
+        if k.endswith('_effetto') and v is not None and str(v) <= t:
+            return True
+    return False
+
+
 def _valori(colonne, righe, nome):
     nomi = [c.lower() for c in colonne]
     return [dict(zip(nomi, r)).get(nome) for r in righe]
@@ -501,10 +516,13 @@ def sintesi_varco(passi, m):
         return 'Piano incompleto: almeno un passo non ha dato risultati, la conclusione non è calcolabile.'
     righe = lambda i: [dict(zip([c.lower() for c in passi[i]['colonne']], r)) for r in passi[i]['righe']]
     valido = lambda r: str(r.get('esito', '')).startswith('VALIDO')
+    # permessi e persone con più righe (una per revoca o sospensione): esclusi se una qualunque è bloccata
+    revocati = {r.get('permesso'): r for r in righe(1) if r.get('permesso') is not None and _bloccata(r, par['istante'])}
+    sospese = {r.get('persona'): r for r in righe(2) if r.get('persona') is not None and _bloccata(r, par['istante'])}
     # passo 2: squadre con un permesso valido per ogni ruolo
     per_squadra = {}
     for r in righe(1):
-        if valido(r):
+        if valido(r) and r.get('permesso') not in revocati:
             per_squadra.setdefault((r.get('squadra'), r.get('nome_squadra')), set()).add(str(r.get('ruolo')).upper())
     squadre = [s for s, rr in per_squadra.items() if all(x in rr for x in ruoli)]
     # la squadra nel passo 3 può arrivare come codice o come nome: si riporta sempre al codice del passo 2
@@ -514,14 +532,15 @@ def sintesi_varco(passi, m):
         codice_di.setdefault(str(r.get('squadra')), r.get('squadra'))
     # passo 3: persone valide per ruolo dentro quelle squadre
     persone = {}
-    esclusi = []
+    esclusi = {}        # (squadra, ruolo) -> persone escluse con il motivo
     for r in righe(2):
         squadra = codice_di.get(str(r.get('squadra')), codice_di.get(str(r.get('nome_squadra')), r.get('squadra')))
         chiave = (squadra, str(r.get('ruolo')).upper())
-        if valido(r):
+        if valido(r) and r.get('persona') not in sospese:
             persone.setdefault(chiave, {})[r.get('persona')] = f'{r.get("nome")} ({r.get("badge")})'
         else:
-            esclusi.append(f'{r.get("nome")} ({r.get("badge")}, {r.get("ruolo")}): {str(r.get("esito"))[9:]}')
+            motivo = str(sospese.get(r.get('persona'), r).get('esito'))[9:]   # riga valida ma persona sospesa in un'altra riga
+            esclusi.setdefault(chiave, []).append(f'{r.get("nome")} ({r.get("badge")}) escluso: {motivo}')
     coppie = []
     for s, nome in squadre:
         a, b = persone.get((s, ruoli[0]), {}), persone.get((s, ruoli[1]), {})
@@ -547,8 +566,28 @@ def sintesi_varco(passi, m):
                        for t, r in terminali.items() if not valido(r)) or 'nessuno'))
     righe_testo.append('Terminali utilizzabili con finestra e chiave valide: '
                        + ('; '.join(f'terminale {t} ({c}) chiave {", ".join(k)}' for t, c, k in utilizzabili) or 'nessuno'))
-    if esclusi:
-        righe_testo.append('Persone escluse (esempi): ' + ' | '.join(esclusi[:6]))
+    # perché ogni squadra con un permesso per il varco va bene o no: serve a «perché la Calce no?» e «Hilda può da sola?»
+    permessi = {}
+    for r in righe(1):
+        permessi.setdefault((r.get('squadra'), r.get('nome_squadra')), []).append(r)
+    spiegazioni = []
+    for (s, nome), rr in permessi.items():
+        motivi = []
+        for ruolo in ruoli:
+            if ruolo not in per_squadra.get((s, nome), set()):
+                del_ruolo = [str(revocati.get(r.get('permesso'), r).get('esito'))[9:] for r in rr
+                             if str(r.get('ruolo')).upper() == ruolo]
+                motivi.append(f'permesso {ruolo} non valido ({"; ".join(del_ruolo) or "nessun permesso"})')
+        if not motivi:
+            a, b = persone.get((s, ruoli[0]), {}), persone.get((s, ruoli[1]), {})
+            for ruolo, validi in ((ruoli[0], a), (ruoli[1], b)):
+                if not validi:
+                    motivi.append(f'nessun {ruolo} valido ('
+                                  + ('; '.join(esclusi.get((s, ruolo), [])) or 'nessun membro con questo ruolo') + ')')
+            if a and b and not any(x != y for x in a for y in b):
+                motivi.append(f'{next(iter(a.values()))} ha entrambi i ruoli ma è una sola persona: ne servono due diverse')
+        spiegazioni.append(f'{nome or s}: ' + ('VALIDA' if not motivi else 'NO, ' + ' | '.join(motivi)))
+    righe_testo.append('Verifica di ogni squadra con un permesso per il varco:\n' + '\n'.join(f'- {x}' for x in spiegazioni))
     if not par.get('canale_veicolo'):
         canali = sorted({str(c) for _, c, _ in utilizzabili})
         if len(canali) > 1:
@@ -626,6 +665,9 @@ ISTRUZIONI_SQL = (
     'cercare proprio quello, anche se non compare tra i valori citati: serve a verificare se esiste. Un nome che non è '
     'un valore di nessuna colonna (es. un contenitore che compare solo nei dossier) NON va messo nella query. Se la '
     'domanda nomina un codice, cercalo per codice senza filtri su stato e data e restituisci stato e date. '
+    'Non aggiungere filtri che la domanda non chiede: per "quali permessi ha X" o "quali permessi sono revocati" restituisci '
+    'TUTTE le righe (anche scadute, revocate o con motivi diversi) con stato, date e motivo, senza filtrare su stato, '
+    'date o motivo. '
     'Per esplorare (campioni, conteggi, valori distinti, controlli dei riferimenti) usa COUNT, GROUP BY, DISTINCT e LEFT '
     'JOIN ... WHERE ... IS NULL per i riferimenti mancanti. Collega le tabelle con JOIN sui collegamenti indicati, '
     'confronta i testi esattamente, restituisci le colonne utili a verificare. Non usare ORDER BY ... LIMIT 1 per scegliere. '
@@ -655,7 +697,103 @@ def _chiedi_sql(modello, messaggi):
     return proposta['sql'].strip()
 
 
-def _una_query(modello, messaggi, percorso, parametri, passo=False):
+# ------------------------------------------------------------------ scrittura (switch «Scrittura» della chat)
+# Il database si modifica solo con lo switch acceso: INSERT, UPDATE, DELETE e REPLACE su tabelle che esistono. Niente DROP, ALTER,
+# CREATE, PRAGMA o ATTACH (la struttura resta quella della squadra). Prima di ogni modifica si fa una copia in registro/backup.
+RE_SQL_SCRITTURA = re.compile(r'^\s*(insert|update|delete|replace)\b', re.I)
+CARTELLA_BACKUP = Path(__file__).resolve().parent.parent / 'registro' / 'backup'
+ISTRUZIONI_SCRITTURA = (
+    'Sei l\'analista dati dell\'Investigatore e la squadra ti chiede di MODIFICARE il database. Scrivi UNA sola istruzione '
+    'SQLite di modifica (INSERT, UPDATE o DELETE) che fa esattamente quello che chiede la richiesta, usando i nomi di tabelle '
+    'e colonne dello schema. Restringi UPDATE e DELETE con una WHERE precisa (chiave primaria o valori esatti): non toccare '
+    'righe che la richiesta non nomina. I codici sono testo: conserva gli zeri iniziali. Le date nel formato AAAA-MM-GG hh:mm. '
+    'Niente DROP, ALTER, CREATE o PRAGMA. Rispondi solo con un oggetto JSON nella forma {"sql":"UPDATE ..."}.'
+)
+
+
+def copia_di_sicurezza(percorso):
+    """Copia del database prima della modifica (con l'API di backup di sqlite: coerente anche a database aperto)."""
+    CARTELLA_BACKUP.mkdir(parents=True, exist_ok=True)
+    p = Path(percorso)
+    dest = CARTELLA_BACKUP / f'{p.stem}.{time.strftime("%Y%m%d-%H%M%S")}{p.suffix}'
+    sorgente, copia = sqlite3.connect(p), sqlite3.connect(dest)
+    try:
+        sorgente.backup(copia)
+    finally:                # chiuse subito: su Windows un file aperto non si può spostare né cancellare
+        sorgente.close()
+        copia.close()
+    return dest
+
+
+def modifica_database(query, percorso):
+    """Esegue UNA istruzione di modifica. Ritorna {righe_modificate} oppure {errore}."""
+    if not RE_SQL_SCRITTURA.match(query or ''):
+        return {'errore': 'serve una sola istruzione INSERT, UPDATE o DELETE'}
+    if not Path(percorso).is_file():
+        return {'errore': 'Carica il database della squadra.'}
+    tabelle = set(descrivi(percorso)['tabelle'])
+    con = sqlite3.connect(percorso)
+    negati = []
+
+    def autorizza(azione, arg1, arg2, db, trigger):
+        if azione in (sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE, sqlite3.SQLITE_READ):
+            if arg1 in tabelle:
+                return sqlite3.SQLITE_OK
+            negati.append(f'la tabella {arg1} non esiste (tabelle: {", ".join(sorted(tabelle))})')
+            return sqlite3.SQLITE_DENY
+        # TRANSACTION: il BEGIN implicito di Python prima della modifica (il commit è nostro)
+        if azione in (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_TRANSACTION, sqlite3.SQLITE_SAVEPOINT, getattr(sqlite3, 'SQLITE_RECURSIVE', -1)):
+            return sqlite3.SQLITE_OK
+        if azione == sqlite3.SQLITE_FUNCTION:
+            if (arg2 or '').lower() in FUNZIONI_PERMESSE:
+                return sqlite3.SQLITE_OK
+            negati.append(f'la funzione {arg2} non è permessa')
+            return sqlite3.SQLITE_DENY
+        negati.append('sono permesse solo INSERT, UPDATE e DELETE: DROP, ALTER, CREATE, PRAGMA e ATTACH sono vietati')
+        return sqlite3.SQLITE_DENY
+    con.set_authorizer(autorizza)
+    try:
+        cursore = con.execute(query)       # execute rifiuta più istruzioni separate da ';'
+        con.commit()
+        return {'righe_modificate': cursore.rowcount}
+    except (sqlite3.Error, sqlite3.Warning) as e:
+        con.rollback()
+        motivi = list(dict.fromkeys(negati))
+        return {'errore': str(e) + (f' ({"; ".join(motivi)})' if motivi else '')}
+    finally:
+        con.close()
+
+
+def scrivi_nel_database(modello, richiesta, percorso, m=None):
+    """La richiesta di modifica diventa una istruzione SQL (scritta dall'utente, oppure dal modello con fino a TENTATIVI correzioni),
+    eseguita dopo la copia di sicurezza. Ritorna {sql, righe_modificate, backup, errore, tentativi, database, colonne, righe}."""
+    m = m or missioni.missione(Path(percorso).name)
+    base = {'database': Path(percorso).name, 'parametri': m['parametri'], 'titolo': m.get('titolo'), 'scrittura': True,
+            'colonne': [], 'righe': [], 'altre_righe': False}
+    diretta = RE_SQL_SCRITTURA.match(richiesta)
+    messaggi = [{'role': 'system', 'content': f'{ISTRUZIONI_SCRITTURA}\n\nSCHEMA:\n{schema_testo(percorso, m)}'},
+                {'role': 'user', 'content': f'RICHIESTA: {richiesta}'}]
+    tentativi, backup, esito, query = [], None, {'errore': 'nessuna istruzione proposta'}, ''
+    for _ in range(1 if diretta else TENTATIVI):
+        try:
+            query = richiesta.strip().rstrip(';') if diretta else _chiedi_sql(modello, messaggi)
+        except (ValueError, json.JSONDecodeError) as e:
+            esito = {'errore': f'il modello non ha prodotto SQL valido ({e})'}
+            tentativi.append({'sql': '', 'errore': esito['errore']})
+            continue
+        if backup is None and RE_SQL_SCRITTURA.match(query):
+            backup = copia_di_sicurezza(percorso)
+        esito = modifica_database(query, percorso)
+        tentativi.append({'sql': query, 'errore': esito.get('errore')})
+        if 'errore' not in esito:
+            break
+        messaggi += [{'role': 'assistant', 'content': json.dumps({'sql': query})},
+                     {'role': 'user', 'content': f'Errore: {esito["errore"]}. Correggi l\'istruzione e rispondi solo con il JSON.'}]
+    return {**base, 'sql': query, 'righe_modificate': esito.get('righe_modificate'), 'errore': esito.get('errore'),
+            'backup': str(backup) if backup else None, 'tentativi': tentativi}
+
+
+def _una_query(modello, messaggi, percorso, parametri, passo=False, domanda=''):
     """Chiede una query e la esegue, con fino a TENTATIVI correzioni (errore, metodo vietato, 0 righe, elenco in blocco)."""
     tentativi, esito, query = [], {'errore': 'nessuna query proposta'}, ''
     for _ in range(TENTATIVI):
@@ -682,13 +820,16 @@ def _una_query(modello, messaggi, percorso, parametri, passo=False):
                      'e rispondi solo con il JSON.')
         elif not esito.get('righe'):
             assenti = valori_assenti(query, percorso)
-            if assenti and not passo:
+            # vale solo per i valori scritti nella domanda: un filtro aggiunto dal modello ('Cocito' per "Archivio Cocito")
+            # che non esiste è un errore della query, e si riprova senza
+            if assenti and not passo and all(v.lower() in domanda.lower() for v in assenti):
                 # «la pratica PX9999»: il valore non esiste, 0 righe È la risposta. Riprovare spingeva il modello a cambiare il filtro
                 # finché trovava qualcosa (il codice di un'altra pratica): proprio il codice inventato che la missione vieta.
                 esito['nota'] = f'nessuna riga: nel database non esiste {", ".join(repr(v) for v in assenti)}'
             else:
                 rifai = ('La query non ha restituito righe'
-                         + (f': nel database non esiste {", ".join(repr(v) for v in assenti)}. Usa i valori come sono scritti nel database'
+                         + (f': nel database non esiste {", ".join(repr(v) for v in assenti)}. Usa i valori come sono scritti nel '
+                            'database, oppure togli i filtri che la domanda non chiede'
                             if assenti else '. Probabilmente una JOIN sbagliata o un filtro troppo stretto')
                          + '. Controlla valori e collegamenti dello schema e rispondi solo con il JSON.')
         if not rifai:
@@ -714,6 +855,10 @@ def agente_sql(modello, domanda, indizi, percorso, documenti=(), m=None, avanzam
     avanzamento(n, totale, passo): chiamata dopo ogni passo del piano, per mostrarlo nella pagina mentre il modello scrive il successivo.
     Ritorna {sql, colonne, righe, altre_righe, errore, tentativi, passi?, sintesi?, mappa?, valori_citati, database, parametri}."""
     m = m or missioni.missione(Path(percorso).name)
+    # «e alle 12:30?»: la domanda chiede di un altro momento. Vale solo per questa risposta, i parametri salvati non cambiano
+    istante = missioni.istante_in(domanda, m['parametri']['istante']) if m.get('parametri', {}).get('istante') else None
+    if istante and istante != m['parametri']['istante']:
+        m = {**m, 'parametri': {**m['parametri'], 'istante': istante}}
     base = {'database': Path(percorso).name, 'parametri': m['parametri'], 'titolo': m.get('titolo')}
     schema = schema_testo(percorso, m)
     if RE_MAPPA.search(domanda):
@@ -750,7 +895,7 @@ def agente_sql(modello, domanda, indizi, percorso, documenti=(), m=None, avanzam
                 {'role': 'user', 'content': f'VALORI DEL DATABASE CITATI NEI DOSSIER:\n{testo_valori_citati(citati)}\n\n'
                                             f'DOCUMENTI CHE COLLEGANO PIÙ VALORI DEL DATABASE:\n{collegamenti}\n\n'
                                             f'INDIZI DEI DOSSIER:\n{indizi or "(nessuno)"}\n\nDOMANDA: {domanda}'}]
-    r = _una_query(modello, messaggi, percorso, m['parametri'])
+    r = _una_query(modello, messaggi, percorso, m['parametri'], domanda=domanda)
     return {**base, **r, 'valori_citati': citati[:20]}
 
 
