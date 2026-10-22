@@ -9,6 +9,7 @@ import json
 import re
 import threading
 import time
+import unicodedata
 from pathlib import Path
 
 QUI = Path(__file__).resolve().parent
@@ -27,7 +28,10 @@ def _leggi(percorso, vuoto):
 
 
 def _norma(testo):
-    return re.sub(r'\s+', ' ', re.sub(r"[^\w\s-]", ' ', (testo or '').lower())).strip()
+    """Minuscolo, senza accenti e senza punteggiatura (il trattino resta: V-46). Senza togliere gli accenti «può» non era «puo»
+    e le domande risolutive scritte con l'accento non avviavano il piano a passi."""
+    t = ''.join(c for c in unicodedata.normalize('NFD', (testo or '').lower()) if unicodedata.category(c) != 'Mn')
+    return re.sub(r'\s+', ' ', re.sub(r"[^\w\s-]", ' ', t)).strip()
 
 
 def missione(nome_db):
@@ -40,6 +44,17 @@ def missione(nome_db):
     m['storia_parametri'] = agg.get('storia', [])
     m['database'] = nome_db
     return m
+
+
+def missione_per_tabelle(tabelle):
+    """Il nome del database (voce di missioni.json) le cui tabelle ipotizzate sono tutte in `tabelle`, o None. Serve ai CSV caricati senza il
+    loro database (TABELLE_CSV: "gli stessi dati, con gli stessi nomi"): il database ricostruito prende quel nome e quindi quella missione."""
+    tabelle = set(tabelle)
+    for nome, voce in _leggi(FILE_MISSIONI, {}).items():
+        ipotesi = voce.get('ipotesi') if isinstance(voce, dict) else None
+        if ipotesi and set(ipotesi) <= tabelle:
+            return nome
+    return None
 
 
 def compila(testo, parametri):

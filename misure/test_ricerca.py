@@ -5,6 +5,7 @@
 Coprono: identificatori nella fusione, embedding parziali e salvati a gruppi, equivalenza tra la ricerca con numpy e quella in Python puro,
 riconoscimento e riscrittura dei seguiti. Le misure con i documenti e il modello veri sono in misura_ricerca.py."""
 import shutil
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -335,6 +336,99 @@ class ToolSqlTest(unittest.TestCase):
             m = RE_GIORNO_CARTELLA.search(nome)
             self.assertEqual(int(m[1]) if m else None, atteso, nome)
         self.assertEqual(indice_mod.giorno_di(Path('GIORNATA 4') / 'accessi_g_4.sqlite', '', 'accessi_g_4'), 4)
+
+    def test_domande_risolutive_anche_senza_le_parole_esatte(self):
+        import missioni
+        m = missioni.missione('archivio_recuperato.sqlite')
+        for domanda in ("nell'archivio r03 sono presenti due persone che solo insieme possono accedere all'archivio cocito, dimmi questi nomi",
+                        "Chi può entrare nell'archivio Cocito?", 'Quali operatori autorizzati possono aprire il varco V-46?'):
+            self.assertTrue(missioni.e_risolutiva(m, domanda), domanda)
+        self.assertFalse(missioni.e_risolutiva(m, 'quante righe ha la tabella r03?'))
+
+
+class DatabaseDaCsvTest(unittest.TestCase):
+    """CSV caricati senza il loro database: diventano un database per il tool SQL, non documenti di testo."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.csv = self.tmp / 'caricati' / 'TABELLE_CSV'
+        self.csv.mkdir(parents=True)
+        (self.csv / 't01.csv').write_text('k0,v1,v2\n10,Anna Neri,090788\n11,Luca Bo,123456\n', encoding='utf-8')
+        (self.csv / 't02.csv').write_text('k0,k1,v1,ts_a\n7,10,283618,2026-11-04 08:00\n8,11,406288,\n', encoding='utf-8')
+        (self.tmp / 'caricati' / 'nota.txt').write_text('Una nota qualunque del caso.', encoding='utf-8')
+        self.salvati = (indice_mod.CARTELLA_CARICATI, indice_mod.CARTELLA_REGISTRO)
+        indice_mod.CARTELLA_CARICATI, indice_mod.CARTELLA_REGISTRO = self.tmp / 'caricati', self.tmp / 'registro'
+
+    def tearDown(self):
+        indice_mod.CARTELLA_CARICATI, indice_mod.CARTELLA_REGISTRO = self.salvati
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_i_csv_diventano_un_database_con_i_tipi_giusti(self):
+        import sql
+        ix = indice_mod.Indice(embedding_attivo=False)
+        ix.ricarica()
+        self.assertEqual([d['nome'] for d in ix.database], ['TABELLE_CSV.sqlite'])
+        self.assertNotIn('t01', ix.documenti)               # i CSV non sono documenti di testo
+        self.assertIn('nota', ix.documenti)
+        db = ix.database[0]['percorso']
+        r = sql.interroga_database("SELECT v2, typeof(v2), typeof(k0) FROM t01 WHERE v1 = 'Anna Neri'", db)
+        self.assertEqual(r['righe'], [['090788', 'text', 'integer']])          # lo zero iniziale resta
+        r = sql.interroga_database("SELECT typeof(v1), ts_a FROM t02 WHERE k0 = 8", db)
+        self.assertEqual(r['righe'], [['text', None]])                         # codice a lunghezza fissa = testo; vuoto = NULL
+        rel = {(x['da'], x['colonna'], x['a']) for x in sql.profila(db)['relazioni']}
+        self.assertIn(('t02', 'k1', 't01'), rel)                              # relazione dedotta come sul database originale
+
+    def test_un_csv_da_solo_resta_un_documento(self):
+        (self.csv / 't02.csv').unlink()
+        ix = indice_mod.Indice(embedding_attivo=False)
+        ix.ricarica()
+        self.assertEqual(ix.database, [])
+        self.assertIn('t01', ix.documenti)
+
+
+class AgenteSqlTest(unittest.TestCase):
+    """La logica dei tentativi e dei controlli, con un modello finto che propone query fisse."""
+
+    def setUp(self):
+        import sql
+        self.sql = sql
+        self.tmp = Path(tempfile.mkdtemp())
+        self.db = self.tmp / 'prova.sqlite'
+        con = sqlite3.connect(self.db)
+        con.execute('CREATE TABLE accessi (id INTEGER PRIMARY KEY, pratica TEXT, codice TEXT, stato TEXT)')
+        con.executemany('INSERT INTO accessi VALUES (?, ?, ?, ?)', [(1, 'PX0306', '090788', 'attivo'), (2, 'PX0264', '423386', 'revocato')])
+        con.commit()
+        con.close()
+        self.salvato = sql._chiedi_sql
+
+    def tearDown(self):
+        self.sql._chiedi_sql = self.salvato
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def proponi(self, *query):
+        chiamate = []
+
+        def finto(_modello, _messaggi):
+            chiamate.append(1)
+            return query[min(len(chiamate), len(query)) - 1]
+        self.sql._chiedi_sql = finto
+        return chiamate
+
+    def test_valore_inesistente_zero_righe_senza_altri_tentativi(self):
+        chiamate = self.proponi("SELECT codice FROM accessi WHERE pratica = 'PX9999'", "SELECT codice FROM accessi WHERE pratica = 'PX0264'")
+        r = self.sql._una_query('finto', [], self.db, {})
+        self.assertEqual(len(chiamate), 1)                  # il modello non viene spinto a cercare un altro codice
+        self.assertEqual(r['righe'], [])
+        self.assertIn('PX9999', r['nota'])
+
+    def test_scrittura_rifiutata_con_il_motivo(self):
+        r = self.sql.interroga_database("DELETE FROM accessi", self.db)
+        self.assertIn('solo letture', r['errore'])
+        r = self.sql.interroga_database("SELECT load_extension('x')", self.db)
+        self.assertIn('load_extension non è permessa', r['errore'])
+        con = sqlite3.connect(self.db)
+        self.assertEqual(con.execute('SELECT count(*) FROM accessi').fetchone()[0], 2)
+        con.close()
 
 
 if __name__ == '__main__':

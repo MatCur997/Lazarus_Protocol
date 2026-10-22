@@ -5,6 +5,7 @@ import io
 import json
 import math
 import re
+import sqlite3
 import threading
 import time
 import zipfile
@@ -16,7 +17,8 @@ from config import (CARTELLA_CARICATI, CARTELLA_REGISTRO, ESTENSIONI_MARKUP, EST
                     SOGLIA_BRANI, SOGLIA_CARATTERI, TOP_K)
 from modello import embed
 from pertinenza import pertinenti as raggruppa_pertinenti
-from sql import descrivi, e_database
+import missioni
+from sql import database_da_csv, descrivi, e_database, leggi_tabella_csv
 from testo import STOP, estrai_nomi, frasi, ms, parole, prova_persona, senza_accenti
 from scenario import RE_CODICE, RE_GIORNO_CARTELLA, RE_GIORNO_TESTO, RE_GIORNO_ID, RE_ID_DOCUMENTO
 
@@ -296,8 +298,9 @@ class Indice:
                         tabelle_db[q] = descrivi(q)['tabelle']
                     except Exception:
                         pass
+            da_csv = self._database_da_csv(cartella, tutti, tabelle_db, database)
             for p in tutti:
-                if p.suffix.lower() == '.csv' and copia_di_tabella(p, tabelle_db):
+                if p in da_csv or (p.suffix.lower() == '.csv' and copia_di_tabella(p, tabelle_db)):
                     continue    # TABELLE_CSV/r03.csv = tabella r03 di archivio_recuperato.sqlite: la legge il tool SQL
                 if origine == 'caricato' and dati and p.resolve().is_relative_to(dati):
                     continue    # la cartella dati della squadra può stare dentro caricati/: si legge una volta sola
@@ -338,6 +341,37 @@ class Indice:
             self.documenti = docs
             self.database = database      # database caricati (tool SQL), es. accessi_g_4.sqlite
             self._costruisci()
+
+    def _database_da_csv(self, cartella, tutti, tabelle_db, database):
+        """CSV che sono tabelle (TABELLE_CSV caricata senza archivio_recuperato.sqlite): due o più nella stessa cartella diventano un database
+        per il tool SQL (registro/database_da_csv/), con il nome della missione che ha quelle tabelle, e NON documenti di testo. Letti come
+        testo, due righe vicine di r03.csv finivano nello stesso brano e il modello le presentava come «due persone collegate».
+        Se il database originale è già caricato, i CSV si saltano e basta. Ritorna i CSV usati (da non leggere come documenti)."""
+        per_cartella = defaultdict(dict)
+        for q in tutti:
+            if q.is_file() and q.suffix.lower() == '.csv' and not copia_di_tabella(q, tabelle_db):
+                tabella = leggi_tabella_csv(q)
+                if tabella:
+                    per_cartella[q.parent][q] = tabella
+        usati, originali = set(), {q.name for q in tabelle_db}
+        for cartella_csv, tabelle in per_cartella.items():
+            if len(tabelle) < 2:
+                continue            # un CSV da solo può essere un documento (un elenco, un registro): resta testo
+            per_nome = {q.stem: t for q, t in tabelle.items()}
+            nome = missioni.missione_per_tabelle(per_nome) or f'{cartella_csv.name}.sqlite'
+            usati |= set(tabelle)
+            if nome in originali:
+                continue            # c'è già il database vero con quei dati
+            try:
+                percorso_db = database_da_csv(per_nome, CARTELLA_REGISTRO / 'database_da_csv' / nome)
+            except (OSError, ValueError, sqlite3.Error) as e:
+                print(f'  ! {cartella_csv.name}: CSV non convertibili in database ({e})')
+                usati -= set(tabelle)
+                continue
+            rel = cartella_csv.relative_to(cartella) if cartella_csv.is_relative_to(cartella) else Path(cartella_csv.name)
+            giorno = giorno_di(rel / nome, '', cartella_csv.name)
+            database.append({'percorso': str(percorso_db), 'nome': nome, 'giorno': giorno, 'da_csv': str(cartella_csv)})
+        return usati
 
     def _leggi_con_cache(self, p, letture):
         """Testo del file, riletto (e ri-analizzato: PDF, xlsx, docx) solo se è cambiato dall'ultima volta (data di modifica e dimensione).

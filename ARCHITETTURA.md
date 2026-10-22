@@ -188,6 +188,20 @@ solo la libreria standard (più `requests`) nel backend.
     Per la mappa i documenti non si cercano; per il piano a passi si cercano senza HyDE (alla risposta ne vanno solo 2 brani). Le query
     le scrive sempre il modello: nessun riuso di query o risultati.
   - **Giorno di un database**: dalle cartelle (`GIORNATA 4`, `Imprevisti_g_4`), altrimenti dal nome del file (`accessi_g_4.sqlite`).
+  - **CSV senza il loro database** (`TABELLE_CSV` caricata da sola): due o più CSV-tabella nella stessa cartella diventano un database
+    (`Indice._database_da_csv` -> `sql.database_da_csv`, in `registro/database_da_csv/`, ricostruito solo se i CSV cambiano) con il nome
+    della missione che ha quelle tabelle (`missioni.missione_per_tabelle`: TABELLE_CSV -> `archivio_recuperato.sqlite`). Tipi come
+    nell'originale: interi per le chiavi (k0, k1, id) e i numeri di lunghezza variabile, testo per i codici a lunghezza fissa e con zeri
+    iniziali; vuoto = NULL. Verificato sull'archivio del giorno 4: stessi tipi, stesse 16 relazioni, stessi dati riga per riga. Prima i
+    CSV erano letti come testo: due righe vicine di r03.csv diventavano «le due persone autorizzate». Un CSV da solo resta un documento.
+  - **Tentativi del modello** (`_una_query`): 0 righe perché un valore della query non esiste nel database (`valori_assenti`, «PX9999») è la
+    risposta: niente altri tentativi, che spingevano il modello a cambiare filtro fino a trovare un altro codice; il prompt della
+    risposta riceve l'esito («nel database non esiste…»). Le query rifiutate dicono al modello il perché (tabella non leggibile, funzione
+    non permessa con l'elenco di quelle ammesse, solo SELECT) invece del solo «not authorized».
+  - **Cache**: schema (`descrivi`) e profilo si ricordano per database finché il file non cambia (prima lo schema si rileggeva a ogni query,
+    il profilo solo per l'ultimo database usato).
+  - **Domande risolutive**: `risolutiva` in `missioni.json` riconosce anche «due persone che possono accedere all'archivio Cocito», «chi può
+    entrare»; `missioni._norma` toglie gli accenti («può» = «puo»).
 - **Quanti documenti vede il modello**: se i documenti pertinenti stanno in `SOGLIA_CARATTERI` e `SOGLIA_BRANI` (non sono numeri fissi: un terzo di `NUM_CTX` per i documenti,
   `FRAZIONE_CONTESTO_DOCUMENTI` e `CARATTERI_PER_TOKEN` in `config.py`; con NUM_CTX 12288 fanno 12288 caratteri e 40 brani)
   (40) li riceve tutti, altrimenti i `TOP_K` (10) brani migliori; mai più di `MAX_BRANI_PER_DOC` (2) brani per documento

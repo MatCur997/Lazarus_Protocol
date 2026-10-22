@@ -487,7 +487,9 @@ def testo_risultato_sql(r):
     return (f'{intestazione}\nQuery eseguita:\n{r["sql"]}\n{verdetto_permessi(r)}'
             f'Colonne: {" | ".join(r["colonne"])}\nRighe restituite ({len(r["righe"])}{", altre non mostrate" if r["altre_righe"] else ""}):\n'
             f'{_righe_con_esito(r["colonne"], r["righe"], 25, 15)}\n'
-            f'Valori usati nella query e documenti dei dossier in cui compaiono:\n{valori}\n'
+            # 0 righe perché il valore cercato non esiste: è la risposta (pratica inesistente), da dire senza proporre altri codici
+            + (f'ESITO: {r["nota"]}. Rispondi che nel database non c\'è, senza proporre codici o valori simili.\n' if r.get('nota') else '')
+            + f'Valori usati nella query e documenti dei dossier in cui compaiono:\n{valori}\n'
             'Se una riga ha stato diverso da attivo o scadenza precedente al momento chiesto, scrivi chiaramente che quel '
             'codice NON è valido. ' + ISTRUZIONI_RISPOSTA_SQL)
 

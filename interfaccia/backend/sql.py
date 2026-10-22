@@ -8,6 +8,7 @@ qualunque scrittura, e il risultato torna al modello che risponde citando le fon
 - esiti calcolati dal codice: intervalli [inizio, fine) con fine NULL = senza scadenza, revoche efficaci dall'istante
   di effetto, stati. Il modello sceglie le righe, il calcolo delle date non lo fa lui;
 - piano a passi per le domande risolutive (terminali, permessi, persone, finestre e chiavi), con gli esclusi."""
+import csv
 import json
 import re
 import sqlite3
@@ -65,8 +66,24 @@ def _connetti(percorso):
     return con
 
 
+_CACHE_DESCRIZIONE = {}
+
+
+def _firma(percorso):
+    p = Path(percorso)
+    return str(p.resolve()), p.stat().st_mtime_ns
+
+
 def descrivi(percorso):
-    """{tabelle: {nome: [colonne]}, collegamenti: [...], righe: {nome: n}} letti dal database."""
+    """{tabelle: {nome: [colonne]}, collegamenti: [...], righe: {nome: n}} letti dal database. Si ricorda finché il file non cambia:
+    `interroga_database` la chiedeva a ogni query (un conteggio di tutte le tabelle per ogni tentativo del modello)."""
+    chiave = _firma(percorso)
+    if chiave not in _CACHE_DESCRIZIONE:
+        _CACHE_DESCRIZIONE[chiave] = _descrivi(percorso)
+    return _CACHE_DESCRIZIONE[chiave]
+
+
+def _descrivi(percorso):
     con = _connetti(percorso)
     try:
         tabelle, collegamenti, righe = {}, [], {}
@@ -148,7 +165,8 @@ def profila(percorso):
         profilo = {'tabelle': tabelle, 'relazioni': relazioni}
     finally:
         con.close()
-    _CACHE_PROFILO.clear()
+    for vecchia in [k for k in _CACHE_PROFILO if k[0] == chiave[0]]:     # una voce per database: con due database caricati usati a
+        del _CACHE_PROFILO[vecchia]                                          # turno il profilo non si ricalcola a ogni cambio
     _CACHE_PROFILO[chiave] = profilo
     return profilo
 
@@ -211,18 +229,26 @@ def interroga_database(query, percorso, massimo=MAX_RIGHE):
         return {'errore': 'Scrivi una query SQL.'}
     if not Path(percorso).is_file():
         return {'errore': 'Carica il database della squadra.'}
-    con = _connetti(percorso)
     tabelle = set(descrivi(percorso)['tabelle'])
+    con = _connetti(percorso)
+    negati = []     # perché il controllo ha rifiutato: sqlite dice solo "not authorized", il modello deve sapere cosa correggere
 
     def autorizza(azione, arg1, arg2, db, trigger):
         if azione == sqlite3.SQLITE_SELECT:
             return sqlite3.SQLITE_OK
         if azione == sqlite3.SQLITE_READ:
-            return sqlite3.SQLITE_OK if arg1 in tabelle else sqlite3.SQLITE_DENY
+            if arg1 in tabelle:
+                return sqlite3.SQLITE_OK
+            negati.append(f'la tabella {arg1} non è leggibile (tabelle: {", ".join(sorted(tabelle))})')
+            return sqlite3.SQLITE_DENY
         if azione == sqlite3.SQLITE_FUNCTION:
-            return sqlite3.SQLITE_OK if (arg2 or '').lower() in FUNZIONI_PERMESSE else sqlite3.SQLITE_DENY
+            if (arg2 or '').lower() in FUNZIONI_PERMESSE:
+                return sqlite3.SQLITE_OK
+            negati.append(f'la funzione {arg2} non è permessa (permesse: {", ".join(sorted(FUNZIONI_PERMESSE))})')
+            return sqlite3.SQLITE_DENY
         if azione == getattr(sqlite3, 'SQLITE_RECURSIVE', -1):      # WITH ... (tabelle temporanee della query)
             return sqlite3.SQLITE_OK
+        negati.append('sono permesse solo letture (SELECT): scritture, PRAGMA e ATTACH sono vietati')
         return sqlite3.SQLITE_DENY          # qualunque scrittura, PRAGMA, ATTACH...: vietato
     con.set_authorizer(autorizza)
     passi = 0
@@ -238,9 +264,107 @@ def interroga_database(query, percorso, massimo=MAX_RIGHE):
         return {'colonne': [x[0] for x in cursore.description], 'righe': [list(r) for r in righe[:massimo]],
                 'altre_righe': len(righe) > massimo}
     except (sqlite3.Error, sqlite3.Warning) as e:
-        return {'errore': str(e)}
+        motivi = list(dict.fromkeys(negati))
+        return {'errore': str(e) + (f' ({"; ".join(motivi)})' if motivi else '')}
     finally:
         con.close()
+
+
+# ------------------------------------------------------------------ valori della query che il database non contiene
+_CACHE_VALORI_DB = {}
+RE_LETTERALE = re.compile(r"'((?:[^']|'')*)'")
+
+
+def valori_del_database(percorso, massimo_per_colonna=20000):
+    """Tutti i valori del database come testo minuscolo (per sapere se un filtro della query cerca qualcosa che esiste)."""
+    chiave = _firma(percorso)
+    if chiave not in _CACHE_VALORI_DB:
+        valori = set()
+        con = _connetti(percorso)
+        try:
+            for tabella, colonne in descrivi(percorso)['tabelle'].items():
+                for c in colonne:
+                    valori.update(str(v).lower() for (v,) in con.execute(
+                        f'SELECT DISTINCT "{c}" FROM "{tabella}" WHERE "{c}" IS NOT NULL LIMIT {massimo_per_colonna}'))
+        finally:
+            con.close()
+        _CACHE_VALORI_DB.clear()
+        _CACHE_VALORI_DB[chiave] = valori
+    return _CACHE_VALORI_DB[chiave]
+
+
+def valori_assenti(query, percorso):
+    """I valori tra apici della query che non compaiono in nessuna colonna del database (né in maiuscolo né in minuscolo). Le date si
+    confrontano con < e >, i modelli di LIKE hanno % e _: quelli non contano. «PX9999» assente = 0 righe è la risposta giusta, non un errore."""
+    valori = valori_del_database(percorso)
+    assenti = []
+    for v in RE_LETTERALE.findall(query or ''):
+        v = v.replace("''", "'")
+        if len(v) < 2 or RE_DATA.match(v) or '%' in v or '_' in v:
+            continue
+        if v.lower() not in valori:
+            assenti.append(v)
+    return list(dict.fromkeys(assenti))
+
+
+# ------------------------------------------------------------------ CSV caricati senza il loro database
+RE_NOME_COLONNA = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+RE_NOME_CHIAVE = re.compile(r'^(k\d+|id|.*_id|id_.*)$', re.I)
+RE_INTERO = re.compile(r'^-?(0|[1-9]\d*)$')       # "090788" NON è un intero: è un codice e resta testo con lo zero
+
+
+def leggi_tabella_csv(percorso):
+    """(colonne, righe) se il CSV è una tabella (intestazione con nomi di colonna, stesso numero di campi in ogni riga), altrimenti None."""
+    try:
+        with open(percorso, encoding='utf-8-sig', newline='') as f:
+            righe = list(csv.reader(f))
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return None
+    if len(righe) < 2 or len(righe[0]) < 2 or not all(RE_NOME_COLONNA.match(c.strip()) for c in righe[0]):
+        return None
+    colonne = [c.strip() for c in righe[0]]
+    dati = [r for r in righe[1:] if any(x.strip() for x in r)]
+    if not dati or any(len(r) != len(colonne) for r in dati):
+        return None
+    return colonne, dati
+
+
+def database_da_csv(csv_tabelle, destinazione):
+    """Costruisce (o riusa, se i CSV non sono cambiati) un database SQLite con una tabella per CSV: {nome file: (colonne, righe)}.
+    Tipi: una colonna con soli interi (senza zeri iniziali) è INTEGER se ha il nome di una chiave (k0, k1, id, *_id) o valori di lunghezza
+    diversa; tutte cifre della stessa lunghezza (283618, 406288) è un codice e resta TEXT, come nel database originale («codici come testo»).
+    Un campo vuoto è NULL. La prima colonna intera con
+    valori tutti diversi (k0, id) è la chiave primaria: così il profilo deduce le relazioni come sul database originale."""
+    destinazione = Path(destinazione)
+    firma = json.dumps(sorted((n, len(r), hash(json.dumps(r))) for n, (_, r) in csv_tabelle.items()))
+    file_firma = destinazione.with_suffix('.firma')
+    if destinazione.exists() and file_firma.exists() and file_firma.read_text(encoding='utf-8') == firma:
+        return destinazione
+    destinazione.parent.mkdir(parents=True, exist_ok=True)
+    provvisorio = destinazione.with_suffix('.tmp')
+    provvisorio.unlink(missing_ok=True)
+    con = sqlite3.connect(provvisorio)
+    try:
+        for nome, (colonne, righe) in sorted(csv_tabelle.items()):
+            valori = [[(x.strip() if x.strip() != '' else None) for x in r] for r in righe]
+            interi = []
+            for i, c in enumerate(colonne):
+                pieni = [r[i] for r in valori if r[i] is not None]
+                cifre = bool(pieni) and all(RE_INTERO.match(v) for v in pieni)
+                interi.append(cifre and (bool(RE_NOME_CHIAVE.match(c)) or len({len(v.lstrip('-')) for v in pieni}) > 1))
+            chiave = next((i for i in range(len(colonne)) if interi[i] and i == 0
+                           and len({r[i] for r in valori}) == len(valori) and None not in {r[i] for r in valori}), None)
+            definizione = ', '.join(f'"{c}" ' + ('INTEGER PRIMARY KEY' if i == chiave else 'INTEGER' if interi[i] else 'TEXT')
+                                    for i, c in enumerate(colonne))
+            con.execute(f'CREATE TABLE "{nome}" ({definizione})')
+            con.executemany(f'INSERT INTO "{nome}" VALUES ({", ".join("?" * len(colonne))})',
+                            [[int(v) if interi[i] and v is not None else v for i, v in enumerate(r)] for r in valori])
+        con.commit()
+    finally:
+        con.close()
+    provvisorio.replace(destinazione)
+    file_firma.write_text(firma, encoding='utf-8')
+    return destinazione
 
 
 RE_ALIAS = re.compile(r'\b(?:from|join)\s+"?(\w+)"?(?:\s+(?:as\s+)?(?!on\b|where\b|join\b|left\b|inner\b|group\b|order\b|limit\b)(\w+))?', re.I)
@@ -539,14 +663,22 @@ def _una_query(modello, messaggi, percorso, parametri, passo=False):
             rifai = (f'Troppe righe senza filtri: niente elenchi in blocco. Filtra o aggrega (al massimo {MAX_RISPOSTA} righe) '
                      'e rispondi solo con il JSON.')
         elif not esito.get('righe'):
-            rifai = ('La query non ha restituito righe. Probabilmente un filtro usa un valore che nel database non esiste '
-                     'o una JOIN sbagliata. Controlla valori e collegamenti dello schema e rispondi solo con il JSON.')
+            assenti = valori_assenti(query, percorso)
+            if assenti and not passo:
+                # «la pratica PX9999»: il valore non esiste, 0 righe È la risposta. Riprovare spingeva il modello a cambiare il filtro
+                # finché trovava qualcosa (il codice di un'altra pratica): proprio il codice inventato che la missione vieta.
+                esito['nota'] = f'nessuna riga: nel database non esiste {", ".join(repr(v) for v in assenti)}'
+            else:
+                rifai = ('La query non ha restituito righe'
+                         + (f': nel database non esiste {", ".join(repr(v) for v in assenti)}. Usa i valori come sono scritti nel database'
+                            if assenti else '. Probabilmente una JOIN sbagliata o un filtro troppo stretto')
+                         + '. Controlla valori e collegamenti dello schema e rispondi solo con il JSON.')
         if not rifai:
             break
         messaggi += [{'role': 'assistant', 'content': json.dumps({'sql': query})}, {'role': 'user', 'content': rifai}]
     colonne, righe = annota(esito.get('colonne', []), esito.get('righe', []), parametri, passo) if 'errore' not in esito else ([], [])
     return {'sql': query, 'colonne': colonne, 'righe': righe, 'altre_righe': esito.get('altre_righe', False),
-            'errore': esito.get('errore'), 'tentativi': tentativi}
+            'errore': esito.get('errore'), 'nota': esito.get('nota'), 'tentativi': tentativi}
 
 
 def _righe_compatte(p, massimo=30):

@@ -20,6 +20,7 @@ interfaccia/registro/cache_embedding_chiavi.json
 interfaccia/registro/*.tmp
 interfaccia/registro/missione_log.jsonl
 interfaccia/registro/missioni_parametri.json
+interfaccia/registro/database_da_csv/
 # Restano tracciati: registro/volti.json (foto assegnate), registro/non_persone.txt (esclusioni),
 # lazzaro/dati/ (documenti della squadra) e lazzaro/diario_chat.jsonl (registro della squadra).
 
