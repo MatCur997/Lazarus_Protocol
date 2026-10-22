@@ -27,6 +27,11 @@ HYDE_TOKEN = 120           # lunghezza massima della risposta ipotetica
 # Se il controllo di pertinenza deve chiamare il modello (~1,7 s), la ricerca parte nello stesso momento invece che dopo; se la domanda risulta
 # non sul caso il risultato si scarta. False = prima il controllo, poi la ricerca, come prima.
 PERTINENZA_IN_PARALLELO = True
+# Dopo le regole e prima del modello: se la domanda assomiglia ai brani del caso almeno quanto questa soglia (coseno, come HYDE_SOGLIA) è sul
+# caso e il modello non viene chiamato (~1,7 s). Sotto soglia decide il modello come prima. Soglia non ancora tarata sulle domande reali:
+# alzala se passano come "sul caso" domande estranee. False = sempre il modello.
+PERTINENZA_CON_VETTORI = True
+PERTINENZA_SOGLIA_VETTORI = 0.60
 HYDE_SALTA_CON_IDENTIFICATORI = True   # la domanda ha parole rare (codici, nomi) che trovano già dei brani: HyDE (~2 s) non si fa. False = come prima
 # Fusione delle classifiche (RRF pesata). Gli identificatori sono le parole della domanda che compaiono in pochissimi brani
 # (codici, pratiche, nomi rari): una corrispondenza esatta su una di esse vale più di una somiglianza di significato, che tra

@@ -22,10 +22,34 @@ def controlla_pertinenza(indice, modello, domanda, strumenti, demo=False):
     with indice.lock:
         titoli = [f"{d['id']}: {d.get('titolo', '')}" for d in indice.documenti.values()]
         nomi = list(indice.persone) + list(indice.alias)
+    # Dopo le regole e prima del modello (~1,7 s): una domanda molto simile ai brani del caso è sul caso, senza chiedere al modello.
+    # Solo in questa direzione: se la somiglianza è bassa decide il modello come prima, quindi non si scambia mai una domanda sul caso per estranea.
+    regole = getattr(cfg.LAZARUS, 'classifica_con_regole', None)
+    if cfg.PERTINENZA_CON_VETTORI and not demo and regole and regole(domanda, nomi) is None:
+        somiglianza = somiglianza_col_caso(indice, domanda)
+        if somiglianza is not None and somiglianza >= cfg.PERTINENZA_SOGLIA_VETTORI:
+            strumenti.append({'nome': 'controlla_pertinenza', 'ms': ms(t),
+                              'dettaglio': f'domanda sul caso · assomiglia ai documenti ({somiglianza:.2f} ≥ {cfg.PERTINENZA_SOGLIA_VETTORI:.2f}), modello non chiamato'})
+            return False
     conversazione, motivo = cfg.classifica_domanda(domanda, modello, titoli, nomi, demo)
     strumenti.append({'nome': 'controlla_pertinenza', 'ms': ms(t),
                       'dettaglio': f'{"conversazione: documenti non letti" if conversazione else "domanda sul caso"} · {motivo}'})
     return conversazione
+
+
+def somiglianza_col_caso(indice, domanda):
+    """La somiglianza (coseno) più alta tra la domanda e un brano pertinente al caso, oppure None se non si può calcolare
+    (embedding non pronti, niente numpy, Ollama che non risponde). L'embedding della domanda si ricorda: la ricerca non lo rifà."""
+    with indice.lock:
+        brani, matrice, presenti = indice.brani, indice.matrice, list(indice.emb_presenti)
+    if matrice is None or len(matrice) != len(brani):
+        return None
+    try:
+        vettore = embed([domanda])[0]
+    except Exception:
+        return None
+    ordine, punti = indice.classifica_per_significato(vettore, brani, matrice, presenti)
+    return next((s for i, s in zip(ordine, punti) if not brani[i]['consultazione']), None)
 
 
 def pertinenza_col_modello(indice, domanda, demo=False):
