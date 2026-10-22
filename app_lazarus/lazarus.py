@@ -25,7 +25,7 @@ import requests
 
 MODELLO = "gemma4:12b"
 OLLAMA = "http://127.0.0.1:11434"
-MAX_TOKEN = 400   # tetto, non obiettivo: con Eventi/Indizi/Ipotesi le risposte arrivano a ~300 token e non vanno troncate
+MAX_TOKEN = 600   # tetto, non obiettivo: con Eventi/Indizi/Ipotesi gemma4:12b arriva spesso a 400 token e a 400 la risposta si troncava a metà frase
 MAX_TOKEN_CONVERSAZIONE = 200  # messaggi non sul caso: conversazione libera, senza documenti
 NUM_CTX = 8192    # istruzioni + tutti i documenti pertinenti (~4-5000 token): un contesto fisso evita di ricaricare il modello
 TEMPERATURA = 0.5  # 0 = sempre le stesse parole dei documenti; più alto = riformula di più
@@ -110,7 +110,9 @@ def prepara_richiesta(corpo):
         messaggi[0] = {**messaggi[0], "content": f"[richiesta {secrets.token_hex(3)}]\n{messaggi[0]['content']}"}
     opzioni = corpo.setdefault("options", {})
     contesto = opzioni.get("num_ctx", NUM_CTX)
-    stima = sum(len(m["content"]) for m in messaggi) // 3 + 40 * len(messaggi)   # ~3 caratteri per token, + marcatori
+    # ~2,5 caratteri per token, + marcatori. Misurato con gemma: prosa ~3,1-3,5, ma ID e codici (LX4-1030, RT-4044) solo ~1,3: con 3 la stima era
+    # troppo ottimistica e un prompt da 8177 token in un contesto da 8192 lasciava al modello 15 token di risposta (tagliata a metà frase)
+    stima = sum(len(m["content"]) for m in messaggi) * 2 // 5 + 40 * len(messaggi)
     serve = stima + opzioni.get("num_predict", MAX_TOKEN) + 64
     if serve > contesto:
         opzioni["num_ctx"] = 2048 * math.ceil(serve / 2048)   # più grande solo quando serve (ricarica il modello)

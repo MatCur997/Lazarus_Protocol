@@ -1,0 +1,27 @@
+{
+  "_help": "Domande scritte a mano per misura_ricerca.py. attesi: nome del file senza estensione o ID interno del documento; tutti: true = la risposta richiede tutti i documenti (catena di passaggi). Solo per misurare: il programma non le usa.",
+  "domande": [
+    {"domanda": "Dove è stato spostato il contenitore LUME?", "attesi": ["documento_0389"], "tutti": false},
+    {"domanda": "Chi ha chiesto di fermare il progetto e avvertire i cittadini?", "attesi": ["documento_0057"], "tutti": false},
+    {"domanda": "In quale settore sta il deposito Bastione Cavo?", "attesi": ["documento_0421"], "tutti": false},
+    {"domanda": "Cosa dice la circolare interna sui rifugi?", "attesi": ["documento_0523"], "tutti": false},
+    {"domanda": "L'appunto senza firma quale deposito indica e perché non è affidabile?", "attesi": ["documento_0023"], "tutti": false},
+    {"domanda": "Luca Serra era davvero il sabotatore descritto dalla centrale?", "attesi": ["documento_0057"], "tutti": false},
+    {"domanda": "In quale settore si trova il materiale di recupero della pratica RV628?", "attesi": ["documento_0389", "documento_0421"], "tutti": true,
+     "nota": "catena: la pratica porta al deposito, il deposito al settore"},
+    {"domanda": "Chi ha aperto la pratica del contenitore spostato e in quale deposito si trova ora?", "attesi": ["documento_0057", "documento_0389"], "tutti": true,
+     "nota": "catena senza codici nella domanda"},
+    {"domanda": "Il settore A1 è utilizzabile per il materiale di recupero?", "attesi": ["documento_0421"], "tutti": false},
+    {"domanda": "In quale settore si trova il contenitore LUME?", "attesi": ["documento_0389", "documento_0421"], "tutti": true,
+     "nota": "catena: il contenitore porta al deposito, il deposito al settore (il secondo documento non contiene LUME)"},
+    {"domanda": "Il deposito indicato dall'appunto senza firma è quello dove si trova il materiale di recupero?", "attesi": ["documento_0023", "documento_0389"], "tutti": true,
+     "nota": "confronto tra due documenti"},
+    {"domanda": "Chi ha proposto di avvertire i cittadini e dove si trova ora il materiale che voleva proteggere?", "attesi": ["documento_0057", "documento_0389"], "tutti": true},
+    {"domanda": "il segnale è stato mandato dal ripetitore rame?", "attesi": ["LX4_9261"], "tutti": false, "gruppo": "segnale", "nota": "unico documento con l'esito della prova: Fosso invio riuscito, Rame fallito"},
+    {"domanda": "Il segnale è stato mandato dal ripetitore Fosso?", "attesi": ["LX4_9261"], "tutti": false, "gruppo": "segnale", "nota": "unico documento con l'esito della prova: Fosso invio riuscito, Rame fallito"},
+    {"domanda": "da dove è stato mandato il segnale?", "attesi": ["LX4_9261"], "tutti": false, "gruppo": "segnale", "nota": "unico documento con l'esito della prova: Fosso invio riuscito, Rame fallito"},
+    {"domanda": "quali sono i canali di evacuazione", "attesi": ["LX4_9261"], "tutti": false, "gruppo": "segnale", "nota": "unico documento con l'esito della prova: Fosso invio riuscito, Rame fallito"},
+    {"domanda": "quindi non è mai stato inviato?", "attesi": ["LX4_9261"], "tutti": false, "gruppo": "segnale", "nota": "unico documento con l'esito della prova: Fosso invio riuscito, Rame fallito"},
+    {"domanda": "il segnale di evacuazione EV-441 è stato inviato con successo?", "attesi": ["LX4_9261"], "tutti": false, "gruppo": "segnale", "nota": "unico documento con l'esito della prova: Fosso invio riuscito, Rame fallito"}
+  ]
+}

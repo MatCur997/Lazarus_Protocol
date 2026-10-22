@@ -24,6 +24,35 @@ MAX_BRANI_PER_DOC = 2     # un documento lungo (o un intruso) non può occupare 
 HYDE = True                # HyDE: il modello scrive una risposta ipotetica, la si cerca per significato come terza classifica
 HYDE_SOGLIA = 0.60         # HyDE solo se la ricerca per significato trova poco (migliore similarità sotto soglia). 1 = sempre
 HYDE_TOKEN = 120           # lunghezza massima della risposta ipotetica
+# Fusione delle classifiche (RRF pesata). Gli identificatori sono le parole della domanda che compaiono in pochissimi brani
+# (codici, pratiche, nomi rari): una corrispondenza esatta su una di esse vale più di una somiglianza di significato, che tra
+# documenti quasi identici è rumore. Misurato con misure/misura_ricerca.py: senza questa classifica il documento primo in BM25
+# con un margine netto veniva superato da brani solo simili per significato.
+PESI_RRF = {'bm25': 1.0, 'semantica': 1.0, 'hyde': 1.0, 'identificatori': 2.0, 'riscritta_bm25': 0.7, 'riscritta_semantica': 0.7}
+IDENT_DF_FRAZIONE = 0.002  # una parola è un identificatore se compare in meno di questa frazione dei brani...
+IDENT_DF_MIN = 3           # ...ma sempre se compare al massimo in questi brani
+IDENT_MAX_BRANI = 30       # lunghezza massima della classifica degli identificatori
+# Diversità dei brani scelti (MMR): con centinaia di documenti costruiti sullo stesso modello le varianti di un bollettino riempiono tutti
+# i posti e il documento diverso (un collaudo, un esito) resta fuori. 1 = nessuna diversificazione (i TOP_K migliori, come prima).
+# Misurato con misure/misura_ricerca.py sulle domande del segnale EV-441: documento dell'esito tra le fonti 1/6 (1.0), 2/6 (0.7), 3/6 (0.5 e 0.3);
+# le altre misure invariate (12/12 a mano, 40/40 codici).
+MMR_LAMBDA = 0.5
+MMR_POOL = 40              # candidati tra cui si sceglie (i migliori per punteggio, al massimo MAX_BRANI_PER_DOC per documento)
+# Domande di seguito ("e lui?", "e dopo?"): una chiamata breve le rende autonome con i nomi degli scambi visibili,
+# prima di pertinenza, ricerca e risposta. Parte solo se la domanda sembra dipendere dalla conversazione.
+RISCRIVI_DOMANDE = True
+RISCRIVI_TURNI = 2         # quanti scambi precedenti legge chi riscrive
+RISCRIVI_TOKEN = 80        # lunghezza massima della domanda riscritta
+RISCRIVI_MAX_CARATTERI = 300
+ISTRUZIONI_RISCRITTURA = (
+    "Riscrivi l'ULTIMA domanda dell'utente come domanda autonoma, comprensibile senza la conversazione. "
+    'Cambia il MINIMO: tieni tutte le parole della domanda e sostituisci soltanto i pronomi e i rimandi (lui, lì, quello, "e dopo?", '
+    '"e l\'altro?") con i nomi di persone, luoghi, documenti o codici precisi che compaiono negli scambi precedenti. '
+    'Se il rimando è generico o riguarda tutta la conversazione ("questi avvenimenti", "tutto questo", "quanto detto"), lascialo com\'è: '
+    'non riassumere gli scambi dentro la domanda. Se la domanda è già autonoma, ripetila identica. '
+    "Non rispondere, non aggiungere fatti o dettagli nuovi, non cambiare l'argomento, non riportare citazioni tra parentesi quadre. "
+    'Una sola frase, solo la domanda.'
+)
 ISTRUZIONI_HYDE = (
     'Scrivi in italiano un breve brano (3-4 frasi) che potrebbe comparire in un documento d\'archivio '
     '(verbale, registro, appunto, rapporto) e che risponde alla domanda. Usa il lessico tipico di quei documenti. '
@@ -41,6 +70,7 @@ ESTRAZIONE_CON_MODELLO = False   # True = seconda chiamata al modello dopo ogni 
 SOGLIA_BRANI = 40                # fino a questi brani/caratteri si passano tutti i testi al modello (come lazarus.py)
 SOGLIA_CARATTERI = 12000         # ~4000 token di documenti: con NUM_CTX 8192 restano istruzioni e risposta
 MEMORIA_TURNI = 0                # domande precedenti rimandate al modello (0 = come lazarus.py: nessuna memoria)
+NOTA_GIORNI_MAX_ID = 15          # la cronologia nel prompt elenca gli ID di un giorno solo fino a questo numero (poi ne dice quanti sono)
 
 ISTRUZIONI_ELEMENTI = (
     'Estrai dalla risposta e dalle fonti gli elementi utili all\'indagine: '
@@ -160,6 +190,9 @@ STRUMENTI = {
     'cerca_parole_chiave': 'Ricerca BM25 sulle parole della domanda (ottima per nomi e codici).',
     'cerca_semantica': 'Ricerca per significato con embedding locali in Ollama.',
     'cerca_hyde': 'HyDE: il modello scrive una risposta ipotetica e si cercano i brani con significato simile (solo se la ricerca semantica trova poco).',
+    'cerca_riscritta': 'Domanda di seguito: si cerca anche con la versione riscritta, come classifiche in più con peso minore; la domanda scritta resta la principale.',
+    'cerca_identificatori': 'Parole rare della domanda (codici, pratiche, nomi): i brani che le contengono esattamente vengono prima, con peso doppio nella fusione.',
+    'riscrivi_domanda': 'Domanda di seguito ("e lui?"): resa autonoma con i nomi degli scambi precedenti, poi usata per pertinenza, ricerca e risposta.',
     'fondi_risultati': 'Unisce le classifiche (Reciprocal Rank Fusion) e sceglie i brani migliori tra i documenti pertinenti.',
     'pertinenza': 'Clustering (k-means sugli embedding) che separa i documenti pertinenti all\'indagine da quelli estranei.',
     'genera_risposta': 'Il modello linguistico scrive la risposta usando solo i brani scelti.',

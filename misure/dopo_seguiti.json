@@ -1,0 +1,153 @@
+{
+ "impostazioni": [],
+ "risultati": [
+  {
+   "domanda": "E dove ha spostato il materiale?",
+   "gruppo": "seguiti senza riscrittura",
+   "ok": true,
+   "richiamo": 1.0,
+   "posizione": 1,
+   "fonti": 11,
+   "caratteri": 5270,
+   "ms": 141,
+   "mancanti": [],
+   "nota": ""
+  },
+  {
+   "domanda": "E dove ha spostato il materiale?  →  Dove ha spostato Luca Serra il materiale di recupero?",
+   "gruppo": "seguiti con riscrittura",
+   "ok": true,
+   "richiamo": 1.0,
+   "posizione": 2,
+   "fonti": 10,
+   "caratteri": 3947,
+   "ms": 1133,
+   "mancanti": [],
+   "nota": ""
+  },
+  {
+   "domanda": "E in che settore sta?",
+   "gruppo": "seguiti senza riscrittura",
+   "ok": true,
+   "richiamo": 1.0,
+   "posizione": 1,
+   "fonti": 10,
+   "caratteri": 7505,
+   "ms": 75,
+   "mancanti": [],
+   "nota": ""
+  },
+  {
+   "domanda": "E in che settore sta?  →  In quale settore del deposito Bastione Cavo si trova il contenitore LUME?",
+   "gruppo": "seguiti con riscrittura",
+   "ok": true,
+   "richiamo": 1.0,
+   "posizione": 2,
+   "fonti": 11,
+   "caratteri": 6507,
+   "ms": 589,
+   "mancanti": [],
+   "nota": ""
+  },
+  {
+   "domanda": "E quel deposito esiste davvero?",
+   "gruppo": "seguiti senza riscrittura",
+   "ok": true,
+   "richiamo": 1.0,
+   "posizione": 4,
+   "fonti": 10,
+   "caratteri": 6034,
+   "ms": 38,
+   "mancanti": [],
+   "nota": ""
+  },
+  {
+   "domanda": "E quel deposito esiste davvero?  →  Esiste davvero il deposito Darsena Vuota, settore A1?",
+   "gruppo": "seguiti con riscrittura",
+   "ok": true,
+   "richiamo": 1.0,
+   "posizione": 2,
+   "fonti": 10,
+   "caratteri": 5635,
+   "ms": 422,
+   "mancanti": [],
+   "nota": ""
+  },
+  {
+   "domanda": "Perché lo accusavano?",
+   "gruppo": "seguiti senza riscrittura",
+   "ok": false,
+   "richiamo": 0.0,
+   "posizione": null,
+   "fonti": 10,
+   "caratteri": 6964,
+   "ms": 42,
+   "mancanti": [
+    "documento_0057"
+   ],
+   "nota": ""
+  },
+  {
+   "domanda": "Perché lo accusavano?  →  Perché accusavano Luca Serra?",
+   "gruppo": "seguiti con riscrittura",
+   "ok": true,
+   "richiamo": 1.0,
+   "posizione": 3,
+   "fonti": 11,
+   "caratteri": 5957,
+   "ms": 373,
+   "mancanti": [],
+   "nota": ""
+  },
+  {
+   "domanda": "E lui cosa voleva?",
+   "gruppo": "seguiti senza riscrittura",
+   "ok": false,
+   "richiamo": 0.0,
+   "posizione": null,
+   "fonti": 11,
+   "caratteri": 8133,
+   "ms": 54,
+   "mancanti": [
+    "documento_0057"
+   ],
+   "nota": ""
+  },
+  {
+   "domanda": "E lui cosa voleva?  →  Cosa voleva Luca Serra?",
+   "gruppo": "seguiti con riscrittura",
+   "ok": true,
+   "richiamo": 1.0,
+   "posizione": 2,
+   "fonti": 11,
+   "caratteri": 6057,
+   "ms": 402,
+   "mancanti": [],
+   "nota": ""
+  },
+  {
+   "domanda": "Cosa dice invece la circolare?",
+   "gruppo": "seguiti senza riscrittura",
+   "ok": true,
+   "richiamo": 1.0,
+   "posizione": 1,
+   "fonti": 10,
+   "caratteri": 8429,
+   "ms": 55,
+   "mancanti": [],
+   "nota": ""
+  },
+  {
+   "domanda": "Cosa dice invece la circolare?",
+   "gruppo": "seguiti con riscrittura",
+   "ok": true,
+   "richiamo": 1.0,
+   "posizione": 1,
+   "fonti": 10,
+   "caratteri": 8429,
+   "ms": 53,
+   "mancanti": [],
+   "nota": ""
+  }
+ ]
+}

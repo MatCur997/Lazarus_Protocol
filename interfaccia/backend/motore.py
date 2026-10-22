@@ -11,9 +11,9 @@ import time
 import unicodedata
 
 import config as cfg
-from indice import contesto_da_fonti, fonte_da_brano, limita_per_documento, tutto_nel_contesto
-from modello import genera_demo, genera_ollama, risposta_ipotetica
-from testo import ms, parole
+from indice import contesto_da_fonti, diversifica, fonte_da_brano, limita_per_documento, np, tutto_nel_contesto
+from modello import embed, genera_demo, genera_ollama, risposta_ipotetica, riscrivi_con_modello
+from testo import PREFISSI_COSA, PREFISSI_LUOGO, estrai_luoghi, estrai_nomi, ms, parole
 
 
 def controlla_pertinenza(indice, modello, domanda, strumenti, demo=False):
@@ -33,34 +33,93 @@ def controlla_pertinenza(indice, modello, domanda, strumenti, demo=False):
 RE_CODICE = re.compile(r'(?<![\w-])([A-Z]{1,4}-?\d{2,5})(?![\w]|-\d)')
 RE_ID_DOCUMENTO = re.compile(r'^(?:LX\d?|G\d|ARCH)-?\d+$')
 SALTI, CODICI_PER_SALTO, BRANI_PER_CODICE, FONTI_DI_PARTENZA, MAX_CITAZIONI_GIA_TROVATE = 2, 3, 3, 3, 2
+MAX_BRANI_AGGIUNTI = 6      # in tutto, per non riempire il contesto
+ENTITA_MAX_BRANI = 12       # un nome di persona o di luogo si segue solo se compare in al massimo questi brani del caso: un nome più comune è un nodo
+                            # che collega tutto con tutto («Ripetitore Rame» in centinaia di bollettini), uno raro collega due o tre documenti
 
 
 def codici_in(testo):
     return [c for c in dict.fromkeys(RE_CODICE.findall(testo)) if not RE_ID_DOCUMENTO.match(c)]
 
 
-def segui_riferimenti(fonti, caso, strumenti):
-    """Aggiunge ai brani trovati quelli che contengono, come codice esatto, i riferimenti dei brani migliori.
-    Un codice già presente in più di MAX_CITAZIONI_GIA_TROVATE brani è già ben coperto e non si segue."""
+def entita_in(testo):
+    """Nomi di persona e di luogo del testo (riconoscimento di testo.py), senza la parola generica davanti: «deposito Bastione Cavo» → «Bastione Cavo»."""
+    generiche = PREFISSI_LUOGO | PREFISSI_COSA
+    nomi = []
+    for nome in list(estrai_nomi(testo)) + [l['nome'] for l in estrai_luoghi(testo)]:
+        parti = nome.split()
+        if len(parti) > 1 and parti[0].lower() in generiche:
+            parti = parti[1:]
+        if len(' '.join(parti)) >= 4:
+            nomi.append(' '.join(parti))
+    return list(dict.fromkeys(nomi))
+
+
+def segui_riferimenti(fonti, caso, strumenti, indice=None, domanda=None):
+    """Aggiunge ai brani trovati quelli che contengono, come codice esatto o come nome raro di persona o di luogo (ENTITA_MAX_BRANI), i
+    riferimenti dei brani migliori (al massimo MAX_BRANI_AGGIUNTI).
+    Con gli embedding, tra i brani che contengono il codice si scelgono quelli più pertinenti alla domanda e DIVERSI da ciò che è già tra le
+    fonti (MMR, `diversifica`): un codice comune a centinaia di bollettini quasi uguali porta il documento che dice qualcosa di nuovo
+    (un esito, un collaudo), non altre varianti. Senza embedding si prendono i primi brani in ordine di archivio e un codice già presente in
+    più di MAX_CITAZIONI_GIA_TROVATE brani delle fonti non si segue (è già ben coperto)."""
     t = time.perf_counter()
+    brani_indice, matrice, posizioni, vettore = None, None, {}, None
+    if indice is not None and domanda and cfg.MMR_LAMBDA < 1:
+        with indice.lock:
+            brani_indice, matrice = indice.brani, indice.matrice
+        if matrice is not None and len(matrice) == len(brani_indice):
+            try:
+                vettore = np.asarray(embed([domanda])[0], dtype=np.float32)
+                vettore = vettore / (np.linalg.norm(vettore) or 1.0)
+                posizioni = {(b['doc'], b['n']): i for i, b in enumerate(brani_indice)}
+            except Exception:         # Ollama non risponde: si procede come senza embedding
+                matrice = None
+        else:
+            matrice = None
     presenti = {(f['doc'], f['n']) for f in fonti}
-    seguiti, aggiunti, partenza = set(), [], [f for f in fonti if not f['consultazione']]
+    seguiti, scartati, aggiunti, partenza = set(), set(), [], [f for f in fonti if not f['consultazione']]    # scartati: già coperti o troppo comuni, non contano nel limite dei legami
     partenza = sorted(partenza, key=lambda f: f['punteggio'], reverse=True)[:FONTI_DI_PARTENZA]
+
+    def scegli(trovati, quanti):
+        """I `quanti` brani migliori tra quelli che contengono il codice."""
+        indici = [posizioni[(b['doc'], b['n'])] for b in trovati if (b['doc'], b['n']) in posizioni]
+        if matrice is None or len(indici) <= quanti:
+            return trovati[:quanti]
+        rilevanza = matrice[indici] @ vettore
+        ordine = np.argsort(-rilevanza, kind='stable')
+        punti = {indici[k]: float(rilevanza[k]) for k in ordine}
+        indici = [indici[k] for k in ordine]
+        gia = [posizioni[k] for k in presenti if k in posizioni]
+        return [brani_indice[i] for i in diversifica(indici, punti, matrice, cfg.MMR_LAMBDA, quanti, gia)]
+
     for _ in range(SALTI):
         nuovi = []
         for f in partenza:
-            for c in codici_in(f['testo']):
-                if c in seguiti:
+            legami = [(c, True) for c in codici_in(f['testo'])] + [(e, False) for e in entita_in(f['testo'])]
+            for c, e_codice in legami:
+                if c in seguiti or c in scartati:
                     continue
-                esatto = re.compile(rf'(?<![\w-]){re.escape(c)}(?![\w]|-\d)')
-                if sum(bool(esatto.search(x['testo'])) for x in fonti) > MAX_CITAZIONI_GIA_TROVATE:
-                    seguiti.add(c)
-                    continue
-                trovati = [b for b in caso if (b['doc'], b['n']) not in presenti and esatto.search(b['testo'])]
+                posto = MAX_BRANI_AGGIUNTI - len(aggiunti) - len(nuovi)
+                if posto <= 0:
+                    break
+                if e_codice:
+                    esatto = re.compile(rf'(?<![\w-]){re.escape(c)}(?![\w]|-\d)')
+                    if matrice is None and sum(bool(esatto.search(x['testo'])) for x in fonti) > MAX_CITAZIONI_GIA_TROVATE:
+                        scartati.add(c)
+                        continue
+                    contengono = None
+                else:
+                    esatto = re.compile(rf'(?<![\w]){re.escape(c)}(?![\w])', re.I)
+                    contengono = [b for b in caso if esatto.search(b['testo'])]
+                    if len(contengono) > ENTITA_MAX_BRANI:           # nome comune: collega tutto con tutto, non è un legame
+                        scartati.add(c)
+                        continue
+                trovati = [b for b in (caso if contengono is None else contengono) if (b['doc'], b['n']) not in presenti and
+                           (contengono is not None or esatto.search(b['testo']))]
                 if not trovati:
                     continue
                 seguiti.add(c)
-                for b in trovati[:BRANI_PER_CODICE]:
+                for b in scegli(trovati, min(BRANI_PER_CODICE, posto)):
                     presenti.add((b['doc'], b['n']))
                     nuovi.append(fonte_da_brano(b, f['punteggio']))
                 if len(seguiti) >= SALTI * CODICI_PER_SALTO:
@@ -71,12 +130,61 @@ def segui_riferimenti(fonti, caso, strumenti):
         partenza = nuovi
     if aggiunti:
         strumenti.append({'nome': 'segui_riferimenti', 'ms': ms(t),
-                          'dettaglio': f'codici {", ".join(sorted(seguiti))}: aggiunti ' + ', '.join(f['doc'] for f in aggiunti)})
+                          'dettaglio': f'legami {", ".join(sorted(seguiti))}: aggiunti ' + ', '.join(f['doc'] for f in aggiunti)})
     return fonti + aggiunti
 
 
-def cerca_fonti(indice, domanda, precedenti, strumenti, modello=None, demo=False, traccia=None):
-    """Sceglie i brani da dare al modello. `strumenti` si riempie con {nome, ms, dettaglio} di ogni passo."""
+# Domande di seguito: «e lui?», «e dopo?», «dov'era in quel momento?». Il modello della risposta non riceve la conversazione (MEMORIA_TURNI = 0),
+# quindi un rimando senza il nome a cui si riferisce non trova i documenti, e il controllo di pertinenza può scambiarlo per una chiacchiera.
+# Prima di tutto la domanda si rende autonoma con i nomi degli scambi visibili. Il riconoscimento dei rimandi usa solo classi chiuse
+# dell'italiano (congiunzioni, pronomi, dimostrativi): nessun nome del caso. Se la domanda è già autonoma il modello la ripete uguale.
+APERTURE_SEGUITO = {'e', 'ma', 'quindi', 'allora', 'invece', 'anche', 'ancora', 'poi', 'pero', 'dunque', 'pure', 'neanche', 'nemmeno', 'altrimenti', 'cioe'}
+PAROLE_RIMANDO = {'lui', 'lei', 'loro', 'costui', 'costei', 'colui', 'colei', 'quello', 'quella', 'quelli', 'quelle', 'quel', 'quei', 'quegli', 'quell',
+                  'questo', 'questa', 'questi',
+                  'queste', 'stesso', 'stessa', 'stessi', 'stesse', 'li', 'qui', 'ne', 'altro', 'altra', 'altri', 'altre', 'suo', 'sua', 'suoi', 'sue'}
+PAROLE_BREVI = 3         # una domanda così corta non si regge da sola
+
+
+def sembra_seguito(domanda):
+    """Vero se la domanda potrebbe dipendere dagli scambi precedenti (breve, aperta da una congiunzione o con un rimando)."""
+    p = _norma(domanda).split()
+    return bool(p) and (len(p) <= PAROLE_BREVI or p[0] in APERTURE_SEGUITO or bool(PAROLE_RIMANDO & set(p)))
+
+
+def pulisci_riscrittura(testo, originale):
+    """La domanda riscritta dal modello, o None se non è una domanda utilizzabile (vuota, troppo lunga, su più righe di spiegazioni)."""
+    righe = [r.strip() for r in testo.splitlines() if r.strip()]
+    if not righe:
+        return None
+    riga = re.sub(r'\s*\[[^\]]{1,60}\]', '', righe[0])          # le citazioni [ID] degli scambi precedenti non fanno parte della domanda
+    riga = re.sub(r'^(domanda( autonoma| riscritta)?|riscrittura)\s*:\s*', '', riga, flags=re.I).strip().strip('«»"\' ')
+    if not riga or len(riga) > cfg.RISCRIVI_MAX_CARATTERI or len(riga) < 3:
+        return None
+    return riga if _norma(riga) != _norma(originale) else originale
+
+
+def riscrivi_domanda(modello, domanda, cronologia, strumenti, demo=False):
+    """La domanda da usare per pertinenza, ricerca e risposta. `cronologia`: gli scambi visibili in chat. Senza scambi, senza modello
+    (demo), per saluti e cortesie, o se la domanda non sembra un seguito, ritorna la domanda com'è, senza chiamare il modello."""
+    scambi = [v for v in cronologia if not v.get('meta') and not v.get('errore') and v.get('risposta')][-cfg.RISCRIVI_TURNI:]
+    if not (cfg.RISCRIVI_DOMANDE and modello and not demo and scambi and sembra_seguito(domanda)):
+        return domanda
+    cortesia = getattr(cfg.LAZARUS, 'e_conversazione', None)
+    if cortesia and cortesia(domanda):
+        return domanda
+    t = time.perf_counter()
+    try:
+        nuova = pulisci_riscrittura(riscrivi_con_modello(modello, domanda, testo_cronologia(scambi, cfg.RISCRIVI_TURNI)), domanda)
+        dettaglio = ('domanda già autonoma' if nuova == domanda else f'«{domanda}» → «{nuova}»') if nuova else 'risposta del modello non utilizzabile: domanda invariata'
+    except Exception as e:          # Ollama non risponde: la ricerca prosegue con la domanda scritta
+        nuova, dettaglio = None, f'errore: {e}'
+    strumenti.append({'nome': 'riscrivi_domanda', 'ms': ms(t), 'dettaglio': dettaglio})
+    return nuova or domanda
+
+
+def cerca_fonti(indice, domanda, precedenti, strumenti, modello=None, demo=False, traccia=None, riscritta=None):
+    """Sceglie i brani da dare al modello. `strumenti` si riempie con {nome, ms, dettaglio} di ogni passo.
+    `riscritta`: la domanda di seguito resa autonoma; si cerca anche con quella, ma la domanda scritta resta la principale."""
     # solo le domande di seguito molto corte ("e cosa dice?") cercano anche con la domanda precedente:
     # per le altre la domanda precedente porterebbe fuori strada la ricerca
     breve = len(parole(domanda)) <= 3
@@ -106,8 +214,8 @@ def cerca_fonti(indice, domanda, precedenti, strumenti, modello=None, demo=False
         strumenti.append({'nome': 'fondi_risultati', 'ms': 0,
                           'dettaglio': f'richiesti tutti i documenti: {len(caso)} brani del caso passati interi'})
         return [fonte_da_brano(b) for b in caso]
-    fonti = indice.cerca(query, strumenti, ipotesi, traccia)
-    fonti = segui_riferimenti(fonti, caso, strumenti)
+    fonti = indice.cerca(query, strumenti, ipotesi, traccia, riscritta)
+    fonti = segui_riferimenti(fonti, caso, strumenti, indice, domanda)
     # "ci sono file malevoli/sospetti?": i documenti sospetti non hanno quelle parole, la ricerca da sola non li trova
     if RE_CHIEDE_SOSPETTI.search(q):
         presenti = {(f['doc'], f['n']) for f in fonti}
@@ -145,8 +253,15 @@ def giorni_chiesti(domanda):
             valori.append(n)
     if not valori:
         return set()
+    primi = re.search(r'\bprimi (\d{1,2}|uno|due|tre|quattro|cinque) (?:giorni|giornate)\b', q)
+    if primi:                                                    # «i primi due giorni» = 1, 2 (non solo il 2)
+        n = int(primi[1]) if primi[1].isdigit() else ORDINALI_GIORNO[primi[1]]
+        return set(range(1, n + 1))
     if re.search(r'\bdal\b.*\bal\b|\bfino al\b|\btra\b.*\be\b', q) and len(valori) >= 2:
         return set(range(min(valori), max(valori) + 1))          # intervallo: dal primo al terzo = 1, 2, 3
+    if len(valori) == 1 and re.search(r'\b(fino|sino|entro)\b', q):
+        ultimo = valori[0] - (1 if re.search(r'\besclus[oiae]\b', q) else 0)
+        return set(range(1, ultimo + 1))                         # «fino al giorno 2 compreso» = 1, 2; «escluso» = 1
     return set(valori)
 
 
@@ -164,9 +279,12 @@ def nota_giorni(indice):
         per_giorno.setdefault(d.get('giorno'), []).append(d.get('id_interno') or d['id'])
     if not any(g is not None for g in per_giorno):
         return ''
-    righe = [f'giorno {g}: ' + ', '.join(ids) for g, ids in sorted(per_giorno.items(), key=lambda kv: kv[0] or 99) if g is not None]
+    def elenco(ids):
+        # con un archivio grande l'elenco riempirebbe il contesto (ogni ID costa ~4 token: 700 ID erano il 70% del prompt e la risposta veniva tagliata)
+        return ', '.join(ids) if len(ids) <= cfg.NOTA_GIORNI_MAX_ID else f'{len(ids)} documenti, troppi per elencarli (ogni fonte riporta il suo giorno)'
+    righe = [f'giorno {g}: ' + elenco(ids) for g, ids in sorted(per_giorno.items(), key=lambda kv: kv[0] or 99) if g is not None]
     if per_giorno.get(None):
-        righe.append('giorno non indicato: ' + ', '.join(per_giorno[None]))
+        righe.append('giorno non indicato: ' + elenco(per_giorno[None]))
     return 'CRONOLOGIA DELL\'INDAGINE (giorno in cui sono arrivati i documenti):\n' + '\n'.join(righe)
 
 

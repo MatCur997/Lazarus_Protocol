@@ -144,7 +144,7 @@ class Gestore(BaseHTTPRequestHandler):
             elenco.append({'nome': nome, 'descrizione': desc, 'chiamate': len(chiamate),
                            'ms_medio': round(sum(c['ms'] for c in chiamate) / len(chiamate), 1) if chiamate else None,
                            'ultimo': chiamate[-1] if chiamate else None,
-                           'attivo': nome != 'cerca_semantica' or INDICE.embedding_ok})
+                           'attivo': nome != 'cerca_semantica' or INDICE.embedding_usabile})
         self.json(elenco)
 
     def api_documenti(self):
@@ -558,28 +558,31 @@ class Gestore(BaseHTTPRequestHandler):
         strumenti = []
         diretta = motore.domanda_sulla_chat(domanda, cronologia)   # "cosa ti ho appena chiesto?": niente modello
         riassunto = False
+        # seguito («e lui?»): la domanda si rende autonoma prima di pertinenza, ricerca e risposta; nello storico resta quella scritta
+        domanda_ricerca = domanda if diretta else motore.riscrivi_domanda(modello, domanda, cronologia, strumenti, STATO['demo'])
         if diretta:
             conversazione = True
             strumenti.append({'nome': 'rispondi_dalla_cronologia', 'ms': ms(t0),
                               'dettaglio': f'domanda sulla chat ({diretta[1] if isinstance(diretta[1], str) else str(diretta[1]) + " indietro"}): '
                                            f'risposta presa da {len(cronologia)} scambi visibili'})
-        elif motore.chiede_dei_documenti(domanda):    # file sospetti o estranei: sempre nei documenti
+        elif motore.chiede_dei_documenti(domanda_ricerca):    # file sospetti o estranei: sempre nei documenti
             conversazione = False
             strumenti.append({'nome': 'controlla_pertinenza', 'ms': ms(t0),
                               'dettaglio': 'domanda sui documenti (sospetti o estranei) · regole'})
         else:
-            conversazione = motore.controlla_pertinenza(INDICE, modello, domanda, strumenti, STATO['demo'])
+            conversazione = motore.controlla_pertinenza(INDICE, modello, domanda_ricerca, strumenti, STATO['demo'])
             riassunto = conversazione and bool(motore.RE_RIASSUNTO.search(motore._norma(domanda)))
-        fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, precedenti, strumenti, modello, STATO['demo'])
+        fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, precedenti, strumenti, modello, STATO['demo'],
+                                                            riscritta=domanda_ricerca if domanda_ricerca != domanda else None)
         ricerca_ms = ms(t0)
         for s in strumenti:
             invia({'tipo': 'strumento', **s})
         invia({'tipo': 'fonti', 'fonti': fonti})
 
-        messaggi = motore.costruisci_messaggi(domanda, fonti, precedenti, conversazione,
+        messaggi = motore.costruisci_messaggi(domanda if conversazione else domanda_ricerca, fonti, precedenti, conversazione,
                                               cronologia=[v for v in cronologia if not v.get('meta')],
                                               elementi_verificati=self.riepilogo_verificato() if riassunto else '',
-                                              nota_archivio='' if conversazione else motore.note_per_prompt(INDICE, domanda))
+                                              nota_archivio='' if conversazione else motore.note_per_prompt(INDICE, domanda_ricerca))
 
         risposta, prima_parola, stat, errore = '', None, {}, None
         t_gen = time.perf_counter()
@@ -604,9 +607,11 @@ class Gestore(BaseHTTPRequestHandler):
         except (RuntimeError, OSError) as e:
             errore = f'Errore del modello: {e}'
         gen_ms = ms(t_gen)
+        limite_token = cfg.NUM_PREDICT_CONVERSAZIONE if conversazione and not riassunto else cfg.NUM_PREDICT
         strumenti.append({'nome': 'genera_risposta', 'ms': gen_ms,
                           'dettaglio': errore or ('dalla cronologia, senza modello' if diretta
-                                                  else f'{modello}: {stat.get("token", 0)} token')})
+                                                  else f'{modello}: {stat.get("token", 0)} token'
+                                                       + (' · TRONCATA dal limite di token' if stat.get('token', 0) >= limite_token else ''))})
 
         t = time.perf_counter()
         persone = INDICE.persone_in(risposta) if risposta else []

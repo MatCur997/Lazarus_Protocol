@@ -82,6 +82,17 @@ def risposta_ipotetica(modello, domanda):
         return json.loads(r.read())['message']['content'].strip()
 
 
+def riscrivi_con_modello(modello, domanda, scambi):
+    """Domanda di seguito ("e lui?") resa autonoma con i nomi degli scambi precedenti (`scambi`: testo numerato).
+    Ritorna il testo del modello, da controllare con motore.riscrivi_domanda prima di usarlo."""
+    corpo = {'model': modello, 'stream': False, 'keep_alive': -1, 'think': False,
+             'options': {'temperature': 0, 'num_ctx': cfg.NUM_CTX, 'num_predict': cfg.RISCRIVI_TOKEN},
+             'messages': [{'role': 'system', 'content': cfg.ISTRUZIONI_RISCRITTURA},
+                          {'role': 'user', 'content': f'Scambi precedenti:\n{scambi}\n\nUltima domanda: {domanda}'}]}
+    with apri_chat(corpo) as r:
+        return json.loads(r.read())['message']['content'].strip()
+
+
 def estrai_con_modello(modello, fonti, domanda, risposta, annullato):
     """Chiede al modello luoghi/indizi/eventi in JSON. Ritorna None se annullata da una nuova domanda."""
     testo_fonti = '\n\n'.join(f'[{f["doc"]}] {f["testo"]}' for f in fonti)

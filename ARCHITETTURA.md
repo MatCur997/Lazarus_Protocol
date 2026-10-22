@@ -87,6 +87,16 @@ solo la libreria standard (più `requests`) nel backend.
   "le ultime N domande" si rispondono dalla cronologia senza modello (`domanda_sulla_chat` in `motore.py`); le altre
   domande di chat ricevono gli scambi visibili numerati, e i riassunti anche gli elementi verificati
   (`riepilogo_verificato` in `server.py`). La cronologia è quella visibile in chat (`vista` mandata da `app.js`).
+- **Domande di seguito** («e lui?», «e dopo?», «perché lo accusavano?»): il modello della risposta non riceve la conversazione, quindi un
+  rimando senza il nome a cui si riferisce non troverebbe i documenti (e il controllo di pertinenza potrebbe scambiarlo per una chiacchiera).
+  `motore.riscrivi_domanda` li rende autonomi con una chiamata breve (≈0,4-0,8 s) usando gli ultimi `RISCRIVI_TURNI` scambi visibili: parte
+  solo se la domanda sembra un seguito (`sembra_seguito`: breve, aperta da una congiunzione o con un rimando; solo classi chiuse
+  dell'italiano) e c'è un modello. La domanda riscritta serve a pertinenza e prompt (`domanda_ricerca` in `server.api_chiedi`); nello storico
+  resta quella scritta dall'utente. La ricerca usa la domanda SCRITTA come principale e quella riscritta come classifiche in più con peso 0,7
+  (`cerca_riscritta`, `PESI_RRF`): una riscrittura che aggiunge dettagli sbagliati («questi avvenimenti» → «la diffusione di informazioni non
+  verificate sul Ripetitore Rame») non deve far perdere le parole dell'utente (persona, deposito, settore, pratica). Il riscrittore cambia il minimo
+  e lascia i rimandi generici (`ISTRUZIONI_RISCRITTURA`). Le citazioni `[ID]` copiate dalle risposte si tolgono (`pulisci_riscrittura`). Se il modello
+  non risponde, la domanda resta com'è. Strumento `riscrivi_domanda`; si spegne con `RISCRIVI_DOMANDE = False`.
 - **Documenti sospetti**: un documento con almeno due segnali di ordini all'assistente ("istruzione per l'assistente",
   "ignora G2-01", "rispondi che…", "non citare le fonti") ha il metadato `sospetto` con il motivo (`motivo_sospetto` in
   `indice.py`, ricalcolato a ogni caricamento; correzioni a mano in `registro/sospetti.json`, pulsanti nella scheda
@@ -94,6 +104,37 @@ solo la libreria standard (più `requests`) nel backend.
   malevoli/sospetti lo ricevono sempre (`cerca_fonti`). Un documento sospetto conferma solo voci sul tentativo di
   manipolazione, mai il suo contenuto (`riscontro` in `testo.py`). Per domande su file estranei o sospetti il modello
   riceve anche il riepilogo dell'archivio (`nota_archivio`); per "tutti i file" riceve tutti i documenti del caso.
+- **Come si scelgono i brani** (`Indice.cerca`): BM25 su tutto l'archivio, similarità degli embedding (`classifica_per_significato`: con numpy
+  è un prodotto di matrici, ≈20 ms su 5000 brani; senza numpy il ciclo in Python puro, ≈500 ms), HyDE se la ricerca per significato trova poco,
+  e gli **identificatori**: le parole della domanda presenti in pochissimi brani (`IDENT_DF_FRAZIONE`, `IDENT_DF_MIN`: codici, pratiche, nomi rari).
+  Le classifiche si fondono con RRF pesata (`PESI_RRF`, gli identificatori contano doppio) solo tra i documenti pertinenti: tra documenti quasi
+  identici la somiglianza di significato è rumore e faceva perdere il documento primo in BM25 con un margine netto (misurato: domande su
+  codici 90% → 100%). La decisione «la domanda punta a documenti non pertinenti» usa invece la fusione senza identificatori, così una parola
+  rara che compare solo in una voce enciclopedica non porta testo estraneo al caso nel prompt.
+  Tra i candidati pertinenti (`MMR_POOL`) i brani da dare al modello si scelgono con MMR (`diversifica`, `MMR_LAMBDA`): un brano quasi uguale a uno
+  già scelto cede il posto a uno diverso. Con centinaia di documenti costruiti sullo stesso modello (bollettini ripetuti) le varianti
+  riempivano tutti i posti e il documento con l'esito (un collaudo) restava fuori.
+- **Ricerca a salti** (`motore.segui_riferimenti`, dopo la ricerca): dai 3 brani migliori si prendono i codici (pratiche, segnali, bollettini:
+  `EV-441`, `B-417`, `M462`) e i nomi RARI di persona o di luogo (`entita_in`, che usa il riconoscimento di `testo.py` e toglie la parola generica:
+  «deposito Bastione Cavo» → «Bastione Cavo»; un nome che compare in più di `ENTITA_MAX_BRANI` (12) brani del caso è un nodo comune, come «Ripetitore
+  Rame», e non si segue). Si aggiungono, fino a `MAX_BRANI_AGGIUNTI` (6), i brani che li contengono come parola intera; un secondo salto parte
+  dai brani aggiunti (es. «Bastione Cavo» → il documento con la pratica RV628 → il documento di Luca Serra). I legami scartati non consumano il limite. Con gli embedding, tra i brani che contengono il codice si scelgono quelli pertinenti alla domanda e DIVERSI da quelli già tra
+  le fonti (stesso MMR di sopra, `diversifica(..., gia=fonti)`): un codice comune a centinaia di bollettini porta il documento che dice qualcosa di
+  nuovo, non altre varianti. Senza embedding si torna al comportamento di prima (primi brani in ordine di archivio; codice già presente in più
+  di 2 fonti = non si segue). Questo risolve le domande il cui documento non ha le parole della domanda («da dove è stato mandato il segnale?» →
+  il collaudo che dice «invio riuscito»): il legame è il codice, non il vocabolario. Limite noto: senza codici in comune tra fonti e documento
+  cercato il salto non parte.
+- **Embedding**: la cache (`registro/cache_embedding.json`) si salva ogni `SALVA_OGNI` gruppi di brani e anche dopo un errore di Ollama, quindi
+  un'interruzione non butta il lavoro fatto. I brani già in cache sono utilizzabili appena caricati i documenti. Con embedding incompleti
+  (`embedding_ok` falso, `embedding_usabile` vero) la ricerca per significato lavora sui brani pronti e si fonde con le parole chiave; il
+  clustering di pertinenza richiede tutti gli embedding (altrimenti tutti i documenti restano pertinenti).
+- **Lunghezza della risposta**: `MAX_TOKEN` in `lazarus.py` è 600 (era 400: con Eventi/Indizi/Ipotesi gemma4:12b arriva spesso a 400 e la risposta si
+  troncava a metà frase). Se una risposta tocca comunque il limite, lo strumento `genera_risposta` lo segnala con «TRONCATA dal limite di token».
+- **Misure e prove della ricerca** (`misure/`, non fanno parte dell'app): `misura_ricerca.py` indicizza i documenti e calcola quante
+  domande trovano i documenti attesi, in che posizione e in quanto tempo, senza chiamare il modello della risposta (`--modello` serve solo a
+  misurare i seguiti con e senza riscrittura; `--imposta NOME=VALORE` prova un parametro; `--json` salva il risultato per confrontarlo).
+  Domande: `domande_ricerca.json` (a mano, anche catene di documenti), `domande_seguiti.json`, e domande generate dai codici dei documenti.
+  `test_ricerca.py` sono prove automatiche con embedding finti (nessun Ollama). `prima.json` è la misura prima di queste modifiche.
 - **Quanti documenti vede il modello**: se i documenti pertinenti stanno in `SOGLIA_CARATTERI` (12000) e `SOGLIA_BRANI`
   (40) li riceve tutti, altrimenti i `TOP_K` (10) brani migliori; mai più di `MAX_BRANI_PER_DOC` (2) brani per documento
   (`limita_per_documento` in `indice.py`). Contesto del modello `NUM_CTX` = 8192 in `lazarus.py`: fisso, così Ollama
@@ -101,7 +142,8 @@ solo la libreria standard (più `requests`) nel backend.
 - **Tempo dell'indagine**: ogni documento ha il metadato `giorno` (dal nome delle cartelle `…giorno_N…`, altrimenti
   "giorno operativo NN" nel testo o l'ID `G2-…`; `giorno_di` in `indice.py`). Le fonti arrivano al modello in ordine di
   giorno e con "(giorno N)"; il prompt contiene la CRONOLOGIA DELL'INDAGINE (`nota_giorni` in `motore.py`); le domande
-  su uno o più giorni ("giorno 2", "dal primo al terzo") ricevono i documenti di quei giorni (`giorni_chiesti`).
+  su uno o più giorni ("giorno 2", "dal primo al terzo", "fino al giorno 2 compreso", "i primi due giorni") ricevono i documenti di quei giorni
+  (`giorni_chiesti`; «fino a»/«entro» e «i primi N giorni» partono dal giorno 1).
 - **Velocità di caricamento e rimozione**: l'elenco delle persone si calcola dopo il clustering e solo sui pertinenti
   (prima si scansionavano anche le 1000 voci estranee: ~17 s a ogni modifica, ora ~4 s in tutto).
 - **RAG view** (`frontend/ragview.html`, pulsante sotto "Accesso Segreto"): mappa dei documenti (x = somiglianza al caso,
@@ -120,10 +162,10 @@ solo la libreria standard (più `requests`) nel backend.
   (`del_caso` in `server.py`). Il diario delle risposte (`diario_chat.jsonl`) non entra nell'indice.
 - **Documenti uguali, risposte uguali**: i fine riga si uniformano alla lettura (`decodifica`) e i documenti si ordinano
   per nome (`ordine_naturale`), così lo stesso file dà lo stesso prompt da qualunque cartella o sistema arrivi.
-- **Scelta dei brani (RAG)**: `Indice.cerca` fonde con RRF tre classifiche: parole chiave (BM25), significato (embedding) e,
-  solo se la migliore similarità è sotto `HYDE_SOGLIA`, HyDE (il modello scrive una risposta ipotetica, `risposta_ipotetica`
-  in `modello.py`, e si cercano i brani simili a quella).
-  Interruttore in `config.py`: `HYDE = False` torna alla ricerca senza HyDE.
+- **Scelta dei brani (RAG)**: `Indice.cerca` fonde con RRF pesata quattro classifiche: parole chiave (BM25), significato (embedding),
+  identificatori (parole rare della domanda, vedi «Come si scelgono i brani») e, solo se la migliore similarità è sotto `HYDE_SOGLIA`,
+  HyDE (il modello scrive una risposta ipotetica, `risposta_ipotetica` in `modello.py`, e si cercano i brani simili a quella).
+  Interruttori in `config.py`: `HYDE = False` torna alla ricerca senza HyDE; `PESI_RRF['identificatori'] = 0` senza identificatori.
 - **Citazioni**: `[G1-02]`, `[ARCH-6408]` o `[LX4-7783]` diventano link se corrispondono al nome del file o all'ID scritto
   nel documento (`id_interno` in `backend/indice.py`, `documentoCitato` in `app.js`), senza badare a trattini e maiuscole.
 - **Colori e temi**: solo le variabili in cima a `frontend/app.css`. Colori delle puntine: `--p-indizio`, `--p-ipotesi`, `--p-evento`, `--p-persona`, `--p-luogo` in `frontend/bacheca.html`.

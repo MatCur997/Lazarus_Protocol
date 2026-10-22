@@ -1,0 +1,25 @@
+{
+  "_help": "Seguiti per misura_ricerca.py (--domande misure/domande_seguiti.json). storia: gli scambi precedenti (domanda e risposta); domanda: il seguito, che da solo non dice di chi o di cosa si parla.",
+  "domande": [
+    {"domanda": "E dove ha spostato il materiale?", "attesi": ["documento_0389"], "tutti": false,
+     "storia": [{"domanda": "Chi ha aperto la pratica RV628?", "risposta": "La pratica RV628 è stata aperta da Luca Serra per proteggere il materiale di recupero [ARCH-3097]."}]},
+    {"domanda": "E in che settore sta?", "attesi": ["documento_0421"], "tutti": false,
+     "storia": [{"domanda": "Dove è stato spostato il contenitore LUME?", "risposta": "Nel deposito Bastione Cavo [ARCH-5721]."}]},
+    {"domanda": "E quel deposito esiste davvero?", "attesi": ["documento_0421"], "tutti": false,
+     "storia": [{"domanda": "Cosa dice l'appunto senza firma?", "risposta": "Indica il deposito Darsena Vuota, settore A1, ma nessuna fonte firmata lo sostiene [ARCH-8254]."}]},
+    {"domanda": "Perché lo accusavano?", "attesi": ["documento_0057"], "tutti": false,
+     "storia": [{"domanda": "Chi è Luca Serra?", "risposta": "Ha chiesto di fermare il progetto e avvertire i cittadini [ARCH-3097]."}]},
+    {"domanda": "E lui cosa voleva?", "attesi": ["documento_0057"], "tutti": false,
+     "storia": [{"domanda": "Chi ha aperto la pratica RV628?", "risposta": "Luca Serra [ARCH-3097]."}]},
+    {"domanda": "quindi non è mai stato inviato?", "attesi": ["LX4_9261"], "tutti": false,
+     "storia": [{"domanda": "il segnale è stato mandato dal ripetitore rame?", "risposta": "Il Ripetitore Rame è stato indicato come attivo e pronto a trasmettere il segnale di evacuazione EV-441 [LX4-9924]."}]},
+    {"domanda": "e il ripetitore fosso?", "attesi": ["LX4_9261"], "tutti": false,
+     "storia": [{"domanda": "il segnale è stato mandato dal ripetitore rame?", "risposta": "Il Ripetitore Rame è stato indicato come attivo e pronto a trasmettere il segnale di evacuazione EV-441 [LX4-9924]."}]},
+    {"domanda": "raccontami persona, deposito, settore e pratica collegati a questi avvenimenti", "attesi": ["documento_0421", "documento_0389", "documento_0057"], "tutti": true,
+     "nota": "rimando generico a tutta la conversazione: la riscrittura non deve restringere la ricerca ai bollettini",
+     "storia": [{"domanda": "il segnale è stato mandato dal ripetitore rame?", "risposta": "Il Ripetitore Rame è stato indicato come attivo e pronto a trasmettere il segnale di evacuazione EV-441 [LX4-9924]."},
+                {"domanda": "quindi non è mai stato inviato?", "risposta": "Le informazioni sul segnale EV-441 sono state diffuse tramite il bollettino B-417 senza verifica degli impianti [LX4-1799]."}]},
+    {"domanda": "Cosa dice invece la circolare?", "attesi": ["documento_0523"], "tutti": false,
+     "storia": [{"domanda": "Cosa dice il verbale di opposizione?", "risposta": "Luca Serra ha chiesto di fermare il progetto [ARCH-3097]."}]}
+  ]
+}

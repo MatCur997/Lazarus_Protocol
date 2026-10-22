@@ -18,6 +18,11 @@ from modello import embed
 from pertinenza import pertinenti as raggruppa_pertinenti
 from testo import estrai_nomi, frasi, ms, parole
 
+try:
+    import numpy as np
+except Exception:    # numpy assente: la similarità si calcola in Python puro (funziona, ma ~20 volte più lenta)
+    np = None
+
 
 RE_GIORNO_CARTELLA = re.compile(r'giorn[oi]?[ _-]*0*(\d{1,2})(?!\d)', re.I)        # Dati_giorno_2, Imprevisti_giorno_2
 RE_GIORNO_TESTO = re.compile(r'giorno\s+operativo\s+0*(\d{1,2})(?!\d)', re.I)      # "giorno operativo 02"
@@ -222,7 +227,11 @@ class Indice:
         self.persone = {}        # nome -> [{doc, frase, contesto}]
         self.alias = {}          # alias -> nome
         self.embedding_attivo = embedding_attivo
-        self.embedding_ok = False
+        self.embedding_ok = False              # TUTTI i brani hanno l'embedding: serve alla pertinenza (clustering)
+        self.embedding_usabile = False         # almeno una parte dei brani ce l'ha: la ricerca per significato lavora su quelli
+        self.matrice = None                    # (brani x dimensioni) con righe normalizzate, nell'ordine di self.brani (solo con numpy)
+        self.emb_presenti = []                 # per ogni brano: ha l'embedding?
+        self.blocco_embedding = threading.Lock()   # un calcolo di embedding alla volta (avvio e caricamento file possono sovrapporsi)
         self.info_pertinenza = {'dettaglio': 'non ancora calcolata: tutti pertinenti', 'pertinenti': None, 'esclusi': 0}
         self.mappa_pertinenza = None
         self.cache_emb = {}
@@ -321,6 +330,9 @@ class Indice:
             self.df.update(set(b['parole']))
         self.lung_media = (sum(len(b['parole']) for b in brani) / len(brani)) if brani else 1
         self.brani = brani
+        for b in brani:         # embedding già calcolati (cache): la ricerca per significato non aspetta il nuovo calcolo
+            b['emb'] = self.cache_emb.get(self._chiave(b['testo'])) if self.embedding_attivo else None
+        self._carica_matrice()
         # Le persone si cercano solo nei documenti pertinenti. Se arriveranno gli embedding, la pertinenza la decide il
         # clustering (calcola_pertinenza), che poi ricostruisce l'elenco: farlo qui su tutto l'archivio costerebbe
         # ~17 s con 1000 voci estranee, buttati subito dopo. Senza embedding (pochi testi, demo) si fa subito.
@@ -359,27 +371,70 @@ class Indice:
         self.alias = alias
 
     # -- embedding
+    GRUPPO_EMBEDDING = 32       # brani per richiesta a Ollama
+    SALVA_OGNI = 40             # gruppi tra un salvataggio della cache e il successivo (~1300 brani): un'interruzione non butta il lavoro fatto
+
     def calcola_embedding(self):
         if not self.embedding_attivo or tutto_nel_contesto(self.brani):
             return          # pochi testi: gli embedding non servono e farebbero caricare un secondo modello
-        with self.lock:
-            mancanti = [b for b in self.brani if self._chiave(b['testo']) not in self.cache_emb]
-        try:
-            for i in range(0, len(mancanti), 32):
-                gruppo = mancanti[i:i + 32]
-                vettori = embed([b['testo'] for b in gruppo])
-                for b, v in zip(gruppo, vettori):
-                    self.cache_emb[self._chiave(b['testo'])] = v
+        with self.blocco_embedding:
+            with self.lock:
+                mancanti = [b for b in self.brani if self._chiave(b['testo']) not in self.cache_emb]
+            errore = None
+            try:
+                for k, i in enumerate(range(0, len(mancanti), self.GRUPPO_EMBEDDING), 1):
+                    gruppo = mancanti[i:i + self.GRUPPO_EMBEDDING]
+                    vettori = embed([b['testo'] for b in gruppo])
+                    for b, v in zip(gruppo, vettori):
+                        self.cache_emb[self._chiave(b['testo'])] = v
+                    if k % self.SALVA_OGNI == 0:
+                        self._salva_cache()
+            except Exception as e:
+                errore = e
             with self.lock:
                 for b in self.brani:
                     b['emb'] = self.cache_emb.get(self._chiave(b['testo']))
-                self.embedding_ok = all(b['emb'] for b in self.brani) and bool(self.brani)
-            CARTELLA_REGISTRO.mkdir(exist_ok=True)
-            self.file_cache.write_text(json.dumps(self.cache_emb), encoding='utf-8')
-        except Exception as e:
-            self.embedding_ok = False
-            print(f'  Embedding non disponibili ({e}). Uso solo la ricerca per parole chiave.')
-        self.calcola_pertinenza()
+                self._carica_matrice()
+            if mancanti:
+                self._salva_cache()           # anche dopo un errore: gli embedding già calcolati non si rifanno
+            if errore:
+                pronti = sum(self.emb_presenti)
+                print(f'  Embedding non completi ({errore}): pronti {pronti} brani su {len(self.brani)}. '
+                      + ('La ricerca per significato usa quelli pronti, con le parole chiave.' if pronti else 'Uso solo la ricerca per parole chiave.'))
+            self.calcola_pertinenza()
+
+    def _salva_cache(self):
+        CARTELLA_REGISTRO.mkdir(exist_ok=True)
+        self.file_cache.write_text(json.dumps(self.cache_emb), encoding='utf-8')
+
+    def _carica_matrice(self):
+        """Stato degli embedding dei brani attuali: `embedding_ok` = tutti pronti, `embedding_usabile` = almeno uno. Con numpy costruisce
+        la matrice normalizzata: la similarità con la domanda diventa un solo prodotto (~20 ms su 5000 brani invece di ~500 ms in Python)."""
+        self.emb_presenti = [b.get('emb') is not None for b in self.brani]
+        self.embedding_ok = bool(self.brani) and all(self.emb_presenti)
+        self.embedding_usabile = any(self.emb_presenti)
+        self.matrice = None
+        if np is not None and self.embedding_usabile:
+            dimensioni = len(next(b['emb'] for b in self.brani if b.get('emb') is not None))
+            m = np.zeros((len(self.brani), dimensioni), dtype=np.float32)
+            for i, b in enumerate(self.brani):
+                if b.get('emb') is not None:
+                    m[i] = b['emb']
+            norme = np.linalg.norm(m, axis=1, keepdims=True)
+            norme[norme == 0] = 1.0
+            self.matrice = m / norme
+
+    @staticmethod
+    def classifica_per_significato(vettore, brani, matrice, presenti):
+        """(indici dei brani dal più al meno simile al vettore, similarità nello stesso ordine). Solo i brani che hanno l'embedding."""
+        if matrice is not None and len(matrice) == len(brani):
+            v = np.asarray(vettore, dtype=np.float32)
+            norma = float(np.linalg.norm(v))
+            s = matrice @ (v / norma if norma else v)
+            ordine = [i for i in np.argsort(-s, kind='stable').tolist() if presenti[i]]
+            return ordine, [float(s[i]) for i in ordine]
+        coppie = sorted(((coseno(vettore, b['emb']), i) for i, b in enumerate(brani) if presenti[i] and b.get('emb') is not None), reverse=True)
+        return [i for _, i in coppie], [s for s, _ in coppie]
 
     # -- pertinenza (clustering, vedi pertinenza.py)
     def calcola_pertinenza(self):
@@ -423,12 +478,15 @@ class Indice:
         return hashlib.sha1(f'{cfg.MODELLO_EMBEDDING}|{testo}'.encode()).hexdigest()
 
     # -- ricerca
-    def cerca(self, domanda, strumenti, ipotesi=None, traccia=None):
+    def cerca(self, domanda, strumenti, ipotesi=None, traccia=None, riscritta=None):
         """Brani per la domanda: parole chiave (BM25) + significato (embedding) + HyDE se serve, fusi con RRF.
-        `ipotesi`: funzione senza argomenti che ritorna la risposta ipotetica del modello (HyDE), o None."""
+        `ipotesi`: funzione senza argomenti che ritorna la risposta ipotetica del modello (HyDE), o None.
+        `riscritta`: la stessa domanda resa autonoma (seguiti): si cerca anche con quella, come classifiche in più con peso minore. La domanda
+        scritta resta la principale: la riscrittura può aggiungere dettagli sbagliati e non deve far perdere le parole dell'utente."""
         with self.lock:
             brani = list(self.brani)
             n = len(brani)
+            matrice, presenti, usabile = self.matrice, list(self.emb_presenti), self.embedding_usabile
         if not n:
             return []
         if tutto_nel_contesto(brani):
@@ -440,16 +498,20 @@ class Indice:
             return [fonte_da_brano(b) for b in brani]
         t = time.perf_counter()
         q = parole(domanda)
-        punteggi = []
-        for i, b in enumerate(brani):
-            freq = b['freq']
-            s = 0.0
-            for w in q:
-                if w in freq:
-                    idf = math.log(1 + (n - self.df[w] + 0.5) / (self.df[w] + 0.5))
-                    f = freq[w]
-                    s += idf * f * 2.2 / (f + 1.2 * (0.25 + 0.75 * len(b['parole']) / self.lung_media))
-            punteggi.append((s, i))
+
+        def punteggi_bm25(parole_query):
+            risultato = []
+            for i, b in enumerate(brani):
+                freq = b['freq']
+                s = 0.0
+                for w in parole_query:
+                    if w in freq:
+                        idf = math.log(1 + (n - self.df[w] + 0.5) / (self.df[w] + 0.5))
+                        f = freq[w]
+                        s += idf * f * 2.2 / (f + 1.2 * (0.25 + 0.75 * len(b['parole']) / self.lung_media))
+                risultato.append((s, i))
+            return risultato
+        punteggi = punteggi_bm25(q)
         # classifiche COMPLETE (non solo i primi 30): i documenti pertinenti possono stare in fondo all'archivio intero
         bm25 = [i for s, i in sorted(punteggi, reverse=True) if s > 0]
         strumenti.append({'nome': 'cerca_parole_chiave', 'ms': ms(t), 'dettaglio': f'{len(bm25)} brani con parole in comune'})
@@ -459,14 +521,15 @@ class Indice:
         pertinenti_limitati = limita_per_documento(pertinenti, brani)
         tutti_pertinenti = bool(pertinenti) and len(pertinenti) < n and tutto_nel_contesto([brani[i] for i in pertinenti_limitati])
 
-        semantica, migliore = [], None
-        if self.embedding_ok:
+        semantica, punti_sem, migliore = [], [], None
+        if usabile:
             t = time.perf_counter()
             try:
                 qv = embed([domanda])[0]
-                sim = sorted(((coseno(qv, b['emb']), i) for i, b in enumerate(brani)), reverse=True)
-                semantica, migliore = [i for s, i in sim], sim[0][0]
-                strumenti.append({'nome': 'cerca_semantica', 'ms': ms(t), 'dettaglio': f'migliore similarità {migliore:.2f}'})
+                semantica, punti_sem = self.classifica_per_significato(qv, brani, matrice, presenti)
+                migliore = punti_sem[0]
+                strumenti.append({'nome': 'cerca_semantica', 'ms': ms(t), 'dettaglio': f'migliore similarità {migliore:.2f}'
+                                  + ('' if all(presenti) else f' · embedding pronto su {sum(presenti)}/{n} brani')})
             except Exception as e:
                 strumenti.append({'nome': 'cerca_semantica', 'ms': ms(t), 'dettaglio': f'errore: {e}'})
 
@@ -483,32 +546,62 @@ class Indice:
                 try:
                     testo_ipotesi = ipotesi()
                     hv = embed([testo_ipotesi])[0]
-                    sim_h = sorted(((coseno(hv, b['emb']), i) for i, b in enumerate(brani)), reverse=True)
-                    hyde = [i for s, i in sim_h]
+                    hyde, punti_h = self.classifica_per_significato(hv, brani, matrice, presenti)
                     strumenti.append({'nome': 'cerca_hyde', 'ms': ms(t), 'testo': testo_ipotesi,
-                                      'dettaglio': f'risposta ipotetica di {len(testo_ipotesi.split())} parole · migliore similarità {sim_h[0][0]:.2f}'})
+                                      'dettaglio': f'risposta ipotetica di {len(testo_ipotesi.split())} parole · migliore similarità {punti_h[0]:.2f}'})
                 except Exception as e:
                     strumenti.append({'nome': 'cerca_hyde', 'ms': ms(t), 'dettaglio': f'errore: {e}'})
 
-        t = time.perf_counter()
+        # Domanda riscritta (seguiti): classifiche in più, con peso minore (cfg.PESI_RRF)
+        extra = {}
+        if riscritta and _chiave_testo(riscritta) != _chiave_testo(domanda):
+            t = time.perf_counter()
+            extra['riscritta_bm25'] = [i for s, i in sorted(punteggi_bm25(parole(riscritta)), reverse=True) if s > 0]
+            if usabile:
+                try:
+                    extra['riscritta_semantica'] = self.classifica_per_significato(embed([riscritta])[0], brani, matrice, presenti)[0]
+                except Exception as e:
+                    strumenti.append({'nome': 'cerca_riscritta', 'ms': ms(t), 'dettaglio': f'errore nel significato: {e}'})
+            strumenti.append({'nome': 'cerca_riscritta', 'ms': ms(t), 'dettaglio': f'domanda riscritta cercata insieme a quella scritta: {len(extra)} classifiche in più'})
 
-        def fondi(classifiche):           # Reciprocal Rank Fusion
+        # Identificatori: parole della domanda presenti in pochissimi brani (codici, pratiche, nomi rari). Chi le contiene esattamente
+        # va prima, anche se per significato assomiglia a mille altri brani; a parità, contano il numero di identificatori e il BM25.
+        t = time.perf_counter()
+        soglia_df = max(cfg.IDENT_DF_MIN, cfg.IDENT_DF_FRAZIONE * n)
+        rari = sorted({w for w in q if 0 < self.df.get(w, 0) <= soglia_df})
+        identificatori = []
+        if rari:
+            trovati = [(sum(w in brani[i]['freq'] for w in rari), s, i) for s, i in punteggi if s > 0]
+            identificatori = [i for k, s, i in sorted((x for x in trovati if x[0]), reverse=True)[:cfg.IDENT_MAX_BRANI]]
+            strumenti.append({'nome': 'cerca_identificatori', 'ms': ms(t),
+                              'dettaglio': f'{len(identificatori)} brani con {", ".join(rari)}'})
+
+        t = time.perf_counter()
+        classifiche = {'bm25': bm25, 'semantica': semantica, 'hyde': hyde, 'identificatori': identificatori, **extra}
+
+        def fondi(classifiche):           # Reciprocal Rank Fusion pesata (cfg.PESI_RRF)
             punti = defaultdict(float)
-            for c in classifiche:
+            for nome, c in classifiche.items():
+                peso = cfg.PESI_RRF.get(nome, 1.0)
                 for pos, i in enumerate(c):
-                    punti[i] += 1 / (60 + pos)
+                    punti[i] += peso / (60 + pos)
             return punti
-        rrf = fondi([bm25, semantica, hyde])                     # su tutto l'archivio: a cosa punta la domanda?
+        # Su tutto l'archivio, SENZA identificatori: decide se la domanda punta a documenti non pertinenti (vedi sotto). Una parola rara
+        # che compare solo in una voce enciclopedica ("affidabile") non deve far passare al modello testo estraneo al caso.
+        rrf = fondi({nome: c for nome, c in classifiche.items() if nome != 'identificatori'})
         classifica = sorted(rrf, key=rrf.get, reverse=True)
         # solo i documenti pertinenti all'indagine (protocollo di clustering) danno il loro contenuto al modello:
         # se ci stanno tutti, li riceve tutti (nell'ordine dei documenti); altrimenti i migliori tra i pertinenti
         insieme = set(pertinenti)
+        punti_scelti = rrf
         if tutti_pertinenti:
             scelti = pertinenti_limitati
         else:
-            rrf_p = fondi([[i for i in c if i in insieme] for c in (bm25, semantica, hyde)])
+            # tra i pertinenti contano anche gli identificatori: un codice esatto vale più di una somiglianza di significato
+            punti_scelti = rrf_p = fondi({nome: [i for i in c if i in insieme] for nome, c in classifiche.items()})
             migliori = sorted(rrf_p, key=rrf_p.get, reverse=True) or pertinenti
-            scelti = limita_per_documento(migliori, brani)[:TOP_K]
+            candidati = limita_per_documento(migliori, brani)[:max(TOP_K, cfg.MMR_POOL)]
+            scelti = diversifica(candidati, rrf_p, matrice, cfg.MMR_LAMBDA, TOP_K)
         # se la domanda punta soprattutto a documenti NON pertinenti (es. "cosa dice il file sulle anatre?"),
         # il modello ne riceve anche il contenuto, segnato come non pertinente: può parlarne e citarli,
         # ma non diventano mai indizi, eventi o luoghi (vedi del_caso in server.py e le istruzioni)
@@ -537,13 +630,14 @@ class Indice:
             traccia.update({
                 'brani': n, 'pertinenti': len(pertinenti), 'tutti_pertinenti': tutti_pertinenti, 'top_k': TOP_K,
                 'bm25': [voce(i, punti_bm25[i]) for i in bm25[:15]],
-                'semantica': [voce(i, s) for s, i in sim[:15]] if semantica else [],
-                'hyde': [voce(i, s) for s, i in sim_h[:15]] if hyde else [],
+                'semantica': [voce(i, s) for i, s in zip(semantica[:15], punti_sem[:15])],
+                'hyde': [voce(i, s) for i, s in zip(hyde[:15], punti_h[:15])] if hyde else [],
+                'identificatori': [voce(i, punti_bm25[i]) for i in identificatori[:15]], 'rari': rari,
                 'rrf': [{**voce(i, rrf[i]), 'esito': 'scelto' if i in scelti_set else
                          ('usato, non pertinente' if (brani[i]['doc'], brani[i]['n']) in fuori_set else
                           ('non pertinente' if brani[i]['consultazione'] else 'fuori dai primi'))}
                         for i in classifica[:25]]})
-        return fuori + [fonte_da_brano(brani[i], rrf.get(i, 0)) for i in scelti]
+        return fuori + [fonte_da_brano(brani[i], punti_scelti.get(i, 0)) for i in scelti]
 
     def persone_in(self, testo):
         """Persone citate in un testo, solo se compaiono anche nei documenti (nomi inventati o etichette no)."""
@@ -567,6 +661,32 @@ class Indice:
 
 def tutto_nel_contesto(brani):
     return len(brani) <= SOGLIA_BRANI and sum(len(b['testo']) for b in brani) <= SOGLIA_CARATTERI
+
+
+def _chiave_testo(testo):
+    return re.sub(r'\W+', ' ', testo.lower()).strip()
+
+
+def diversifica(candidati, punti, matrice, lam, quanti, gia=()):
+    """I `quanti` brani da dare al modello tra i candidati (già in ordine di punteggio), con MMR: a ogni passo si prende il brano con
+    lam * pertinenza - (1 - lam) * somiglianza con i brani già scelti. Con centinaia di documenti costruiti sullo stesso modello le
+    varianti di uno stesso bollettino occuperebbero tutti i posti e il documento diverso (un collaudo, un esito) resterebbe fuori.
+    `gia`: indici di brani già tra le fonti (non sono candidati, ma contano come «già visti» nella somiglianza).
+    lam = 1, nessuna matrice di embedding o pochi candidati: i primi `quanti`, come prima."""
+    if lam >= 1 or matrice is None or len(candidati) <= quanti:
+        return candidati[:quanti]
+    massimo = max(punti.get(i, 0.0) for i in candidati) or 1.0
+    pertinenza = [punti.get(i, 0.0) / massimo for i in candidati]
+    vettori = matrice[candidati]                                       # righe normalizzate: il prodotto è il coseno
+    somiglianze = vettori @ vettori.T
+    penalita = (vettori @ matrice[list(gia)].T).max(axis=1) if len(gia) else np.zeros(len(candidati), dtype=np.float32)
+    rimasti, scelti = list(range(len(candidati))), []
+    while rimasti and len(scelti) < quanti:
+        k = max(rimasti, key=lambda k: lam * pertinenza[k] - (1 - lam) * float(penalita[k]))
+        rimasti.remove(k)
+        scelti.append(k)
+        penalita = np.maximum(penalita, somiglianze[k])
+    return sorted((candidati[k] for k in scelti), key=lambda i: punti.get(i, 0.0), reverse=True)     # l'ordine di lettura resta quello di pertinenza
 
 
 def limita_per_documento(indici, brani, massimo=None):
