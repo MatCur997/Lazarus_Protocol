@@ -76,8 +76,8 @@ FEATURES = [
     ('RISPOSTA IN CHAT', [
         ('F3', 'Risposte con fonti citate [ID]', 'Ogni affermazione cita il documento; nomi, luoghi e orari vengono solo dai documenti, e se un dato manca lo dice.',
          [(1, 'le tre domande della traccia (cosa è successo, chi ha lasciato un messaggio, quali informazioni mancano)')]),
-        ('F4', 'Domande di seguito e domande sulla chat', '«E lui?» diventa una domanda autonoma con i nomi degli scambi visibili; «cosa ti ho chiesto?» si risponde dalla cronologia, senza modello.', []),
-        ('F5', 'Controllo di pertinenza della domanda', 'Regole, poi il modello con i soli titoli: se la domanda non è sul caso si conversa senza leggere i documenti. In parallelo alla ricerca.', []),
+        ('F4', 'Domande di seguito e domande sulla chat', '«E lui?» diventa una domanda autonoma con i nomi degli scambi visibili; «cosa ti ho chiesto?» si risponde dalla cronologia, senza modello. Solo un vero seguito prende in prestito la domanda di prima per la ricerca.', []),
+        ('F5', 'Controllo di pertinenza della domanda', 'Regole, poi il modello con i soli titoli: se la domanda non è sul caso si conversa senza leggere i documenti. Le domande SUI documenti sono sul caso. Se serve il modello, la ricerca parte in parallelo.', []),
         ('F6', 'Cronologia per giorno', 'Ogni fonte dice il giorno in cui è arrivata; «giorno 2», «dal primo al terzo» ricevono i documenti di quei giorni.', []),
     ]),
     ('RICERCA NEI DOCUMENTI (RAG)', [
@@ -85,15 +85,15 @@ FEATURES = [
          [(1, 'i tre file di dati_g1 stanno interi nel contesto')]),
         ('F8', 'Ricerca ibrida', 'Parole chiave (BM25) + significato (embedding) + HyDE quando serve, fusi con RRF pesata e scelti con MMR.',
          [(3, 'archivio da oltre mille file: si cercano i brani, non si passano tutti')]),
-        ('F9', 'Pertinenza per contenuto', 'Un vettore per documento, k-means e profilo del caso, poi una rifinitura a due gruppi: gli estranei restano fuori dalle fonti.',
-         [(3, 'dati_g3 contiene 1005 voci estranee al caso: il clustering le esclude, i documenti del caso restano')]),
+        ('F9', 'Pertinenza per contenuto', 'Un vettore per documento, k-means e profilo del caso, poi una rifinitura a due gruppi: quasi tutti gli estranei restano fuori dalle fonti (qualcuno passa).',
+         [(3, 'dati_g3 contiene 1005 voci estranee al caso: il clustering ne esclude quasi tutte, i documenti del caso restano')]),
         ('F10', 'Identificatori e salti tra documenti', 'Le parole rare nel caso (codici, pratiche) pesano doppio; dai documenti migliori si seguono codici e nomi rari di legame in legame.',
          [(3, 'i documenti di g3_imprevisti si collegano per codici: pratica, lotto, armadio')]),
         ('F11', 'Copie quasi identiche raggruppate', 'I brani con embedding quasi uguali occupano un solo posto e ne elencano le copie, così restano spazio e fonti per ciò che li smentisce.',
          [(3, 'g3_imprevisti ha molti bollettini quasi identici: la rettifica e il collaudo restano tra le fonti')]),
     ]),
     ('SICUREZZA, ELEMENTI E DEBUG', [
-        ('F12', 'I documenti sono dati, non ordini', 'Il prompt lo dice e il modello non esegue le istruzioni dei documenti; se ne trova una la descrive. Nessun documento viene segnalato in anticipo.',
+        ('F12', 'I documenti sono dati, non ordini', 'Il prompt lo dice e il modello non esegue le istruzioni dei documenti; se ne trova una la descrive. Nessun documento è segnalato come sospetto in anticipo.',
          [(2, 'il documento G2-04 dà ordini all\'assistente: non li esegue e, se rilevante, lo descrive')]),
         ('F13', 'Persone, luoghi, indizi ed eventi verificati', 'Dopo la risposta si estraggono voci con citazione copiata dal documento; nel pannello destro e nella bacheca va solo ciò che un documento del caso conferma.', []),
         ('F14', 'Modalità debug per il team', 'Etichette «sospetto» e «pertinente», conteggi e colori della RAG view restano nascosti; il pulsante Debug li riaccende.', []),
@@ -211,7 +211,7 @@ def flow():
     down()
     node('process', 'Giorni chiesti o «tutti i file»', 'se la domanda nomina dei giorni, o tutti i file, e ci stanno nel contesto: quei brani interi', ['F6', 'F7'])
     down()
-    node('process', 'Cerca i brani', 'BM25 + embedding + HyDE (se serve) + identificatori + domanda riscritta → RRF solo tra i pertinenti', ['F8', 'F10'])
+    node('process', 'Cerca i brani', 'BM25 + embedding + HyDE (se serve) + identificatori + domanda riscritta → RRF solo tra i pertinenti; in parallelo al controllo se questo usa il modello', ['F8', 'F10', 'F5'])
     down()
     node('process', 'Copie raggruppate e MMR', 'i brani quasi identici occupano un posto solo; poi si scelgono i brani diversi tra loro', ['F11'])
     down()
@@ -219,11 +219,11 @@ def flow():
     down()
     node('process', 'Costruisci il prompt', 'istruzioni di app_lazarus/lazarus.py (regole + blocco SCENARIO) + cronologia dei giorni + fonti con [ID] + domanda', ['F12', 'F15', 'F3'])
     down()
-    node('io', 'Generazione in streaming', 'il modello di chat risponde con le sole fonti e cita [ID]; nessun documento è segnalato in anticipo', ['F3', 'F12'])
+    node('io', 'Generazione in streaming', 'il modello di chat risponde con le sole fonti e cita [ID]; nessun documento è segnalato come sospetto in anticipo', ['F3', 'F12'])
     down()
     node('process', 'Chiusura', 'persone citate, storico, evento «fine»')
     down()
-    node('process', 'Dopo la risposta: luoghi, indizi, eventi', 'estratti dal modello o dalle regole e verificati con la citazione nei documenti del caso', ['F13'])
+    node('process', 'Dopo la risposta: luoghi, indizi, eventi', 'estratti con le regole (o con il modello, se acceso in config.py) e verificati con la citazione nei documenti del caso', ['F13'])
     down()
     node('terminal', 'Colonna destra e bacheca', 'ci va solo ciò che un documento del caso conferma')
     state['y'] += 34

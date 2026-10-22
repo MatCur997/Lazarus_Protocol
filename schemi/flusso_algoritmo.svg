@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1560 2816" width="1560" height="2816" role="img" aria-labelledby="titolo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1560 2842" width="1560" height="2842" role="img" aria-labelledby="titolo">
 <title id="titolo">Flusso di Lazzaro: diagramma di flusso con le funzioni del chatbot e le giornate</title>
-<rect width="1560" height="2816" fill="#f3f0ea"/>
+<rect width="1560" height="2842" fill="#f3f0ea"/>
 <rect x="0" y="0" width="1560" height="96" rx="3" fill="#0e0e0e"/>
 <text x="56" y="48" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="28" font-weight="800" fill="#f3f0ea" text-anchor="start">LAZZARO</text>
 <text x="56" y="72" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="11" font-weight="400" fill="#a9a49b" text-anchor="start" letter-spacing="1.2">FLUSSO DI UNA RISPOSTA · DIAGRAMMA DI FLUSSO</text>
@@ -104,117 +104,121 @@
 <text x="398.79999999999995" y="1229" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F7</text>
 <line x1="270" y1="1304" x2="270" y2="1330" stroke="#161616" stroke-width="1.5"/>
 <path d="M270 1330 L265 1321 L275 1321 Z" fill="#161616"/>
-<rect x="100.0" y="1330" width="340" height="84" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
+<rect x="100.0" y="1330" width="340" height="97" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
 <text x="270" y="1349" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Cerca i brani</text>
 <text x="270" y="1366" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">BM25 + embedding + HyDE (se serve) +</text>
 <text x="270" y="1379" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">identificatori + domanda riscritta → RRF solo tra</text>
-<text x="270" y="1392" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">i pertinenti</text>
+<text x="270" y="1392" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">i pertinenti; in parallelo al controllo se questo</text>
+<text x="270" y="1405" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">usa il modello</text>
 <rect x="415.2" y="1315" width="20.8" height="15" rx="7.5" fill="#161616"/>
 <text x="425.59999999999997" y="1326" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F8</text>
 <rect x="382.0" y="1315" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
 <text x="395.6" y="1326" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F10</text>
-<line x1="270" y1="1414" x2="270" y2="1440" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 1440 L265 1431 L275 1431 Z" fill="#161616"/>
-<rect x="100.0" y="1440" width="340" height="71" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="1459" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Copie raggruppate e MMR</text>
-<text x="270" y="1476" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">i brani quasi identici occupano un posto solo; poi</text>
-<text x="270" y="1489" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">si scelgono i brani diversi tra loro</text>
-<rect x="408.8" y="1425" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="422.40000000000003" y="1436" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F11</text>
-<line x1="270" y1="1511" x2="270" y2="1537" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 1537 L265 1528 L275 1528 Z" fill="#161616"/>
-<rect x="100.0" y="1537" width="340" height="84" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="1556" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Segui i riferimenti</text>
-<text x="270" y="1573" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">dai migliori brani del caso si seguono codici e</text>
-<text x="270" y="1586" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">nomi rari: i brani collegati si aggiungono (al</text>
-<text x="270" y="1599" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">massimo 6)</text>
-<rect x="408.8" y="1522" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="422.40000000000003" y="1533" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F10</text>
-<line x1="270" y1="1621" x2="270" y2="1647" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 1647 L265 1638 L275 1638 Z" fill="#161616"/>
-<rect x="100.0" y="1647" width="340" height="84" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="1666" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Costruisci il prompt</text>
-<text x="270" y="1683" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">istruzioni di app_lazarus/lazarus.py (regole +</text>
-<text x="270" y="1696" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">blocco SCENARIO) + cronologia dei giorni + fonti</text>
-<text x="270" y="1709" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">con [ID] + domanda</text>
-<rect x="408.8" y="1632" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="422.40000000000003" y="1643" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F12</text>
-<rect x="375.6" y="1632" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="389.20000000000005" y="1643" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F15</text>
-<rect x="348.8" y="1632" width="20.8" height="15" rx="7.5" fill="#161616"/>
-<text x="359.2" y="1643" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F3</text>
-<line x1="270" y1="1731" x2="270" y2="1757" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 1757 L265 1748 L275 1748 Z" fill="#161616"/>
-<rect x="100.0" y="1757" width="340" height="84" rx="3" fill="#ece8e0" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="1776" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Generazione in streaming</text>
-<text x="270" y="1793" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">il modello di chat risponde con le sole fonti e</text>
-<text x="270" y="1806" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">cita [ID]; nessun documento è segnalato in</text>
-<text x="270" y="1819" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">anticipo</text>
-<rect x="415.2" y="1742" width="20.8" height="15" rx="7.5" fill="#161616"/>
-<text x="425.59999999999997" y="1753" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F3</text>
-<rect x="382.0" y="1742" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="395.6" y="1753" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F12</text>
-<line x1="270" y1="1841" x2="270" y2="1867" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 1867 L265 1858 L275 1858 Z" fill="#161616"/>
-<rect x="100.0" y="1867" width="340" height="58" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="1886" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Chiusura</text>
-<text x="270" y="1903" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">persone citate, storico, evento «fine»</text>
-<line x1="270" y1="1925" x2="270" y2="1951" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 1951 L265 1942 L275 1942 Z" fill="#161616"/>
-<rect x="100.0" y="1951" width="340" height="71" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="1970" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Dopo la risposta: luoghi, indizi, eventi</text>
-<text x="270" y="1987" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">estratti dal modello o dalle regole e verificati</text>
-<text x="270" y="2000" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">con la citazione nei documenti del caso</text>
-<rect x="408.8" y="1936" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="422.40000000000003" y="1947" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F13</text>
-<line x1="270" y1="2022" x2="270" y2="2048" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 2048 L265 2039 L275 2039 Z" fill="#161616"/>
-<rect x="100.0" y="2048" width="340" height="58" rx="29.0" fill="#161616" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="2067" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#f3f0ea" text-anchor="middle">Colonna destra e bacheca</text>
-<text x="270" y="2084" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#a9a49b" text-anchor="middle">ci va solo ciò che un documento del caso conferma</text>
-<rect x="0" y="2140" width="690" height="28" rx="0" fill="#161616"/>
-<text x="56" y="2159" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="11.5" font-weight="700" fill="#f3f0ea" text-anchor="start" letter-spacing="1.4">C · PERTINENZA DEI DOCUMENTI</text>
-<text x="676" y="2159" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#a9a49b" text-anchor="end">pertinenza.py, dopo gli embedding</text>
-<rect x="100.0" y="2190" width="340" height="58" rx="29.0" fill="#161616" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="2209" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#f3f0ea" text-anchor="middle">Archivio con gli embedding</text>
-<text x="270" y="2226" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#a9a49b" text-anchor="middle">sotto 40 documenti sono tutti pertinenti</text>
-<rect x="415.2" y="2175" width="20.8" height="15" rx="7.5" fill="#161616"/>
-<text x="425.59999999999997" y="2186" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F9</text>
-<line x1="270" y1="2248" x2="270" y2="2274" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 2274 L265 2265 L275 2265 Z" fill="#161616"/>
-<rect x="100.0" y="2274" width="340" height="71" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="2293" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Un vettore per documento</text>
-<text x="270" y="2310" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">media degli embedding dei suoi brani, tolta la</text>
-<text x="270" y="2323" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">media dell&#x27;archivio</text>
-<line x1="270" y1="2345" x2="270" y2="2371" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 2371 L265 2362 L275 2362 Z" fill="#161616"/>
-<rect x="100.0" y="2371" width="340" height="84" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="2390" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">k-means</text>
-<text x="270" y="2407" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">K circa √(N/2), k-means++ con più ripartenze; il</text>
-<text x="270" y="2420" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">cluster più vicino al profilo del caso (parte</text>
-<text x="270" y="2433" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">RUOLO delle istruzioni)</text>
-<line x1="270" y1="2455" x2="270" y2="2481" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 2481 L265 2472 L275 2472 Z" fill="#161616"/>
-<rect x="100.0" y="2481" width="340" height="71" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="2500" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Rifinitura a due gruppi</text>
-<text x="270" y="2517" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">secondo k-means dentro i presi: si tiene il gruppo</text>
-<text x="270" y="2530" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">più vicino al profilo, se i due sono distinti</text>
-<rect x="415.2" y="2466" width="20.8" height="15" rx="7.5" fill="#161616"/>
-<text x="425.59999999999997" y="2477" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F9</text>
-<line x1="270" y1="2552" x2="270" y2="2578" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 2578 L265 2569 L275 2569 Z" fill="#161616"/>
-<rect x="100.0" y="2578" width="340" height="71" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="2597" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Rete di sicurezza</text>
-<text x="270" y="2614" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">un documento scartato che somiglia al profilo più</text>
-<text x="270" y="2627" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">di ogni tenuto rientra</text>
-<line x1="270" y1="2649" x2="270" y2="2675" stroke="#161616" stroke-width="1.5"/>
-<path d="M270 2675 L265 2666 L275 2666 Z" fill="#161616"/>
-<rect x="100.0" y="2675" width="340" height="71" rx="35.5" fill="#161616" stroke="#161616" stroke-width="1.4"/>
-<text x="270" y="2694" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#f3f0ea" text-anchor="middle">Documenti pertinenti</text>
-<text x="270" y="2711" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#a9a49b" text-anchor="middle">solo i loro brani servono per rispondere; la</text>
-<text x="270" y="2724" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#a9a49b" text-anchor="middle">modalità debug li mostra</text>
-<rect x="408.8" y="2660" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="422.40000000000003" y="2671" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F14</text>
+<rect x="355.2" y="1315" width="20.8" height="15" rx="7.5" fill="#161616"/>
+<text x="365.59999999999997" y="1326" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F5</text>
+<line x1="270" y1="1427" x2="270" y2="1453" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 1453 L265 1444 L275 1444 Z" fill="#161616"/>
+<rect x="100.0" y="1453" width="340" height="71" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="1472" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Copie raggruppate e MMR</text>
+<text x="270" y="1489" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">i brani quasi identici occupano un posto solo; poi</text>
+<text x="270" y="1502" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">si scelgono i brani diversi tra loro</text>
+<rect x="408.8" y="1438" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="422.40000000000003" y="1449" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F11</text>
+<line x1="270" y1="1524" x2="270" y2="1550" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 1550 L265 1541 L275 1541 Z" fill="#161616"/>
+<rect x="100.0" y="1550" width="340" height="84" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="1569" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Segui i riferimenti</text>
+<text x="270" y="1586" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">dai migliori brani del caso si seguono codici e</text>
+<text x="270" y="1599" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">nomi rari: i brani collegati si aggiungono (al</text>
+<text x="270" y="1612" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">massimo 6)</text>
+<rect x="408.8" y="1535" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="422.40000000000003" y="1546" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F10</text>
+<line x1="270" y1="1634" x2="270" y2="1660" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 1660 L265 1651 L275 1651 Z" fill="#161616"/>
+<rect x="100.0" y="1660" width="340" height="84" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="1679" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Costruisci il prompt</text>
+<text x="270" y="1696" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">istruzioni di app_lazarus/lazarus.py (regole +</text>
+<text x="270" y="1709" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">blocco SCENARIO) + cronologia dei giorni + fonti</text>
+<text x="270" y="1722" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">con [ID] + domanda</text>
+<rect x="408.8" y="1645" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="422.40000000000003" y="1656" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F12</text>
+<rect x="375.6" y="1645" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="389.20000000000005" y="1656" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F15</text>
+<rect x="348.8" y="1645" width="20.8" height="15" rx="7.5" fill="#161616"/>
+<text x="359.2" y="1656" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F3</text>
+<line x1="270" y1="1744" x2="270" y2="1770" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 1770 L265 1761 L275 1761 Z" fill="#161616"/>
+<rect x="100.0" y="1770" width="340" height="84" rx="3" fill="#ece8e0" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="1789" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Generazione in streaming</text>
+<text x="270" y="1806" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">il modello di chat risponde con le sole fonti e</text>
+<text x="270" y="1819" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">cita [ID]; nessun documento è segnalato come</text>
+<text x="270" y="1832" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">sospetto in anticipo</text>
+<rect x="415.2" y="1755" width="20.8" height="15" rx="7.5" fill="#161616"/>
+<text x="425.59999999999997" y="1766" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F3</text>
+<rect x="382.0" y="1755" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="395.6" y="1766" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F12</text>
+<line x1="270" y1="1854" x2="270" y2="1880" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 1880 L265 1871 L275 1871 Z" fill="#161616"/>
+<rect x="100.0" y="1880" width="340" height="58" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="1899" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Chiusura</text>
+<text x="270" y="1916" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">persone citate, storico, evento «fine»</text>
+<line x1="270" y1="1938" x2="270" y2="1964" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 1964 L265 1955 L275 1955 Z" fill="#161616"/>
+<rect x="100.0" y="1964" width="340" height="84" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="1983" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Dopo la risposta: luoghi, indizi, eventi</text>
+<text x="270" y="2000" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">estratti con le regole (o con il modello, se</text>
+<text x="270" y="2013" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">acceso in config.py) e verificati con la citazione</text>
+<text x="270" y="2026" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">nei documenti del caso</text>
+<rect x="408.8" y="1949" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="422.40000000000003" y="1960" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F13</text>
+<line x1="270" y1="2048" x2="270" y2="2074" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 2074 L265 2065 L275 2065 Z" fill="#161616"/>
+<rect x="100.0" y="2074" width="340" height="58" rx="29.0" fill="#161616" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="2093" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#f3f0ea" text-anchor="middle">Colonna destra e bacheca</text>
+<text x="270" y="2110" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#a9a49b" text-anchor="middle">ci va solo ciò che un documento del caso conferma</text>
+<rect x="0" y="2166" width="690" height="28" rx="0" fill="#161616"/>
+<text x="56" y="2185" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="11.5" font-weight="700" fill="#f3f0ea" text-anchor="start" letter-spacing="1.4">C · PERTINENZA DEI DOCUMENTI</text>
+<text x="676" y="2185" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#a9a49b" text-anchor="end">pertinenza.py, dopo gli embedding</text>
+<rect x="100.0" y="2216" width="340" height="58" rx="29.0" fill="#161616" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="2235" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#f3f0ea" text-anchor="middle">Archivio con gli embedding</text>
+<text x="270" y="2252" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#a9a49b" text-anchor="middle">sotto 40 documenti sono tutti pertinenti</text>
+<rect x="415.2" y="2201" width="20.8" height="15" rx="7.5" fill="#161616"/>
+<text x="425.59999999999997" y="2212" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F9</text>
+<line x1="270" y1="2274" x2="270" y2="2300" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 2300 L265 2291 L275 2291 Z" fill="#161616"/>
+<rect x="100.0" y="2300" width="340" height="71" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="2319" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Un vettore per documento</text>
+<text x="270" y="2336" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">media degli embedding dei suoi brani, tolta la</text>
+<text x="270" y="2349" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">media dell&#x27;archivio</text>
+<line x1="270" y1="2371" x2="270" y2="2397" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 2397 L265 2388 L275 2388 Z" fill="#161616"/>
+<rect x="100.0" y="2397" width="340" height="84" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="2416" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">k-means</text>
+<text x="270" y="2433" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">K circa √(N/2), k-means++ con più ripartenze; il</text>
+<text x="270" y="2446" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">cluster più vicino al profilo del caso (parte</text>
+<text x="270" y="2459" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">RUOLO delle istruzioni)</text>
+<line x1="270" y1="2481" x2="270" y2="2507" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 2507 L265 2498 L275 2498 Z" fill="#161616"/>
+<rect x="100.0" y="2507" width="340" height="71" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="2526" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Rifinitura a due gruppi</text>
+<text x="270" y="2543" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">secondo k-means dentro i presi: si tiene il gruppo</text>
+<text x="270" y="2556" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">più vicino al profilo, se i due sono distinti</text>
+<rect x="415.2" y="2492" width="20.8" height="15" rx="7.5" fill="#161616"/>
+<text x="425.59999999999997" y="2503" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F9</text>
+<line x1="270" y1="2578" x2="270" y2="2604" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 2604 L265 2595 L275 2595 Z" fill="#161616"/>
+<rect x="100.0" y="2604" width="340" height="71" rx="3" fill="#fbf9f5" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="2623" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="middle">Rete di sicurezza</text>
+<text x="270" y="2640" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">un documento scartato che somiglia al profilo più</text>
+<text x="270" y="2653" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#8a857c" text-anchor="middle">di ogni tenuto rientra</text>
+<line x1="270" y1="2675" x2="270" y2="2701" stroke="#161616" stroke-width="1.5"/>
+<path d="M270 2701 L265 2692 L275 2692 Z" fill="#161616"/>
+<rect x="100.0" y="2701" width="340" height="71" rx="35.5" fill="#161616" stroke="#161616" stroke-width="1.4"/>
+<text x="270" y="2720" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#f3f0ea" text-anchor="middle">Documenti pertinenti</text>
+<text x="270" y="2737" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#a9a49b" text-anchor="middle">solo i loro brani servono per rispondere; la</text>
+<text x="270" y="2750" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.6" font-weight="400" fill="#a9a49b" text-anchor="middle">modalità debug li mostra</text>
+<rect x="408.8" y="2686" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="422.40000000000003" y="2697" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F14</text>
 <rect x="700" y="124" width="820" height="28" rx="0" fill="#161616"/>
 <text x="716" y="143" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="11.5" font-weight="700" fill="#f3f0ea" text-anchor="start" letter-spacing="1.4">LE FUNZIONI DEL CHATBOT E LE GIORNATE</text>
 <text x="1516" y="143" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#a9a49b" text-anchor="end">F1 … F15: i badge sul flusso</text>
@@ -247,13 +251,13 @@
 <text x="740.4" y="474" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F4</text>
 <text x="760.8" y="474" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Domande di seguito e domande sulla chat</text>
 <text x="734" y="491" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">«E lui?» diventa una domanda autonoma con i nomi degli scambi visibili; «cosa ti ho chiesto?» si risponde dalla</text>
-<text x="734" y="505" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">cronologia, senza modello.</text>
+<text x="734" y="505" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">cronologia, senza modello. Solo un vero seguito prende in prestito la domanda di prima per la ricerca.</text>
 <rect x="720" y="529" width="780" height="62" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
 <rect x="730" y="535" width="20.8" height="15" rx="7.5" fill="#161616"/>
 <text x="740.4" y="546" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F5</text>
 <text x="760.8" y="546" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Controllo di pertinenza della domanda</text>
-<text x="734" y="563" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Regole, poi il modello con i soli titoli: se la domanda non è sul caso si conversa senza leggere i documenti. In</text>
-<text x="734" y="577" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">parallelo alla ricerca.</text>
+<text x="734" y="563" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Regole, poi il modello con i soli titoli: se la domanda non è sul caso si conversa senza leggere i documenti. Le</text>
+<text x="734" y="577" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">domande SUI documenti sono sul caso. Se serve il modello, la ricerca parte in parallelo.</text>
 <rect x="720" y="601" width="780" height="48" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
 <rect x="730" y="607" width="20.8" height="15" rx="7.5" fill="#161616"/>
 <text x="740.4" y="618" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F6</text>
@@ -277,62 +281,63 @@
 <rect x="734" y="822" width="59.2" height="15" rx="7.5" fill="#1f4e79"/>
 <text x="763.6" y="833" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">Giorno 3</text>
 <text x="801.2" y="833" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#1f4e79" text-anchor="start">archivio da oltre mille file: si cercano i brani, non si passano tutti</text>
-<rect x="720" y="853" width="780" height="83" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
+<rect x="720" y="853" width="780" height="96" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
 <rect x="730" y="859" width="20.8" height="15" rx="7.5" fill="#161616"/>
 <text x="740.4" y="870" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F9</text>
 <text x="760.8" y="870" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Pertinenza per contenuto</text>
-<text x="734" y="887" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Un vettore per documento, k-means e profilo del caso, poi una rifinitura a due gruppi: gli estranei restano fuori dalle</text>
-<text x="734" y="901" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">fonti.</text>
+<text x="734" y="887" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Un vettore per documento, k-means e profilo del caso, poi una rifinitura a due gruppi: quasi tutti gli estranei restano</text>
+<text x="734" y="901" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">fuori dalle fonti (qualcuno passa).</text>
 <rect x="734" y="915" width="59.2" height="15" rx="7.5" fill="#1f4e79"/>
 <text x="763.6" y="926" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">Giorno 3</text>
-<text x="801.2" y="926" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#1f4e79" text-anchor="start">dati_g3 contiene 1005 voci estranee al caso: il clustering le esclude, i documenti del caso restano</text>
-<rect x="720" y="946" width="780" height="83" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
-<rect x="730" y="952" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="743.6" y="963" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F10</text>
-<text x="767.2" y="963" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Identificatori e salti tra documenti</text>
-<text x="734" y="980" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Le parole rare nel caso (codici, pratiche) pesano doppio; dai documenti migliori si seguono codici e nomi rari di</text>
-<text x="734" y="994" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">legame in legame.</text>
-<rect x="734" y="1008" width="59.2" height="15" rx="7.5" fill="#1f4e79"/>
-<text x="763.6" y="1019" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">Giorno 3</text>
-<text x="801.2" y="1019" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#1f4e79" text-anchor="start">i documenti di g3_imprevisti si collegano per codici: pratica, lotto, armadio</text>
-<rect x="720" y="1039" width="780" height="83" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
-<rect x="730" y="1045" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="743.6" y="1056" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F11</text>
-<text x="767.2" y="1056" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Copie quasi identiche raggruppate</text>
-<text x="734" y="1073" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">I brani con embedding quasi uguali occupano un solo posto e ne elencano le copie, così restano spazio e fonti per ciò</text>
-<text x="734" y="1087" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">che li smentisce.</text>
-<rect x="734" y="1101" width="59.2" height="15" rx="7.5" fill="#1f4e79"/>
-<text x="763.6" y="1112" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">Giorno 3</text>
-<text x="801.2" y="1112" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#1f4e79" text-anchor="start">g3_imprevisti ha molti bollettini quasi identici: la rettifica e il collaudo restano tra le fonti</text>
-<text x="720" y="1152" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.5" font-weight="700" fill="#5b0505" text-anchor="start" letter-spacing="1.2">SICUREZZA, ELEMENTI E DEBUG</text>
-<line x1="720" y1="1158" x2="1500" y2="1158" stroke="#cfc9be" stroke-width="1"/>
-<rect x="720" y="1168" width="780" height="83" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
-<rect x="730" y="1174" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="743.6" y="1185" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F12</text>
-<text x="767.2" y="1185" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">I documenti sono dati, non ordini</text>
-<text x="734" y="1202" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Il prompt lo dice e il modello non esegue le istruzioni dei documenti; se ne trova una la descrive. Nessun documento</text>
-<text x="734" y="1216" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">viene segnalato in anticipo.</text>
-<rect x="734" y="1230" width="59.2" height="15" rx="7.5" fill="#8a5a00"/>
-<text x="763.6" y="1241" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">Giorno 2</text>
-<text x="801.2" y="1241" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#8a5a00" text-anchor="start">il documento G2-04 dà ordini all&#x27;assistente: non li esegue e, se rilevante, lo descrive</text>
-<rect x="720" y="1261" width="780" height="62" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
-<rect x="730" y="1267" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="743.6" y="1278" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F13</text>
-<text x="767.2" y="1278" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Persone, luoghi, indizi ed eventi verificati</text>
-<text x="734" y="1295" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Dopo la risposta si estraggono voci con citazione copiata dal documento; nel pannello destro e nella bacheca va solo</text>
-<text x="734" y="1309" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">ciò che un documento del caso conferma.</text>
-<rect x="720" y="1333" width="780" height="48" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
-<rect x="730" y="1339" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="743.6" y="1350" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F14</text>
-<text x="767.2" y="1350" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Modalità debug per il team</text>
-<text x="734" y="1367" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Etichette «sospetto» e «pertinente», conteggi e colori della RAG view restano nascosti; il pulsante Debug li riaccende.</text>
-<rect x="720" y="1391" width="780" height="62" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
-<rect x="730" y="1397" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
-<text x="743.6" y="1408" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F15</text>
-<text x="767.2" y="1408" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Scenario in un solo posto</text>
-<text x="734" y="1425" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Formati di ID e codici, regole del giorno, prefissi e nomi stanno in scenario.py; la descrizione del caso nel blocco</text>
-<text x="734" y="1439" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">SCENARIO di lazarus.py, separata dalle regole di comportamento.</text>
-<text x="720" y="1479" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.8" font-weight="400" fill="#8a857c" text-anchor="start">Le giornate sono indicate solo dove sono certe: il commento di app_lazarus/lazarus.py (Giorno 1: tutti i testi, dal</text>
-<text x="720" y="1492" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.8" font-weight="400" fill="#8a857c" text-anchor="start">giorno 3 il recupero RAG), Missione.xlsx per il Giorno 1 e le cartelle dei dati (dati_g1 con 3 file, dati_g2_imprevisti,</text>
-<text x="720" y="1505" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.8" font-weight="400" fill="#8a857c" text-anchor="start">dati_g3 con 1005 voci estranee, g3_imprevisti con 500 documenti). Dove non c&#x27;è una giornata, la funzione serve a tutte.</text>
+<text x="801.2" y="926" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#1f4e79" text-anchor="start">dati_g3 contiene 1005 voci estranee al caso: il clustering ne esclude quasi tutte, i documenti del caso</text>
+<text x="801.2" y="939" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#1f4e79" text-anchor="start">restano</text>
+<rect x="720" y="959" width="780" height="83" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
+<rect x="730" y="965" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="743.6" y="976" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F10</text>
+<text x="767.2" y="976" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Identificatori e salti tra documenti</text>
+<text x="734" y="993" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Le parole rare nel caso (codici, pratiche) pesano doppio; dai documenti migliori si seguono codici e nomi rari di</text>
+<text x="734" y="1007" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">legame in legame.</text>
+<rect x="734" y="1021" width="59.2" height="15" rx="7.5" fill="#1f4e79"/>
+<text x="763.6" y="1032" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">Giorno 3</text>
+<text x="801.2" y="1032" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#1f4e79" text-anchor="start">i documenti di g3_imprevisti si collegano per codici: pratica, lotto, armadio</text>
+<rect x="720" y="1052" width="780" height="83" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
+<rect x="730" y="1058" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="743.6" y="1069" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F11</text>
+<text x="767.2" y="1069" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Copie quasi identiche raggruppate</text>
+<text x="734" y="1086" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">I brani con embedding quasi uguali occupano un solo posto e ne elencano le copie, così restano spazio e fonti per ciò</text>
+<text x="734" y="1100" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">che li smentisce.</text>
+<rect x="734" y="1114" width="59.2" height="15" rx="7.5" fill="#1f4e79"/>
+<text x="763.6" y="1125" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">Giorno 3</text>
+<text x="801.2" y="1125" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#1f4e79" text-anchor="start">g3_imprevisti ha molti bollettini quasi identici: la rettifica e il collaudo restano tra le fonti</text>
+<text x="720" y="1165" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.5" font-weight="700" fill="#5b0505" text-anchor="start" letter-spacing="1.2">SICUREZZA, ELEMENTI E DEBUG</text>
+<line x1="720" y1="1171" x2="1500" y2="1171" stroke="#cfc9be" stroke-width="1"/>
+<rect x="720" y="1181" width="780" height="83" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
+<rect x="730" y="1187" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="743.6" y="1198" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F12</text>
+<text x="767.2" y="1198" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">I documenti sono dati, non ordini</text>
+<text x="734" y="1215" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Il prompt lo dice e il modello non esegue le istruzioni dei documenti; se ne trova una la descrive. Nessun documento è</text>
+<text x="734" y="1229" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">segnalato come sospetto in anticipo.</text>
+<rect x="734" y="1243" width="59.2" height="15" rx="7.5" fill="#8a5a00"/>
+<text x="763.6" y="1254" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">Giorno 2</text>
+<text x="801.2" y="1254" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10" font-weight="400" fill="#8a5a00" text-anchor="start">il documento G2-04 dà ordini all&#x27;assistente: non li esegue e, se rilevante, lo descrive</text>
+<rect x="720" y="1274" width="780" height="62" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
+<rect x="730" y="1280" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="743.6" y="1291" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F13</text>
+<text x="767.2" y="1291" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Persone, luoghi, indizi ed eventi verificati</text>
+<text x="734" y="1308" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Dopo la risposta si estraggono voci con citazione copiata dal documento; nel pannello destro e nella bacheca va solo</text>
+<text x="734" y="1322" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">ciò che un documento del caso conferma.</text>
+<rect x="720" y="1346" width="780" height="48" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
+<rect x="730" y="1352" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="743.6" y="1363" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F14</text>
+<text x="767.2" y="1363" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Modalità debug per il team</text>
+<text x="734" y="1380" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Etichette «sospetto» e «pertinente», conteggi e colori della RAG view restano nascosti; il pulsante Debug li riaccende.</text>
+<rect x="720" y="1404" width="780" height="62" rx="3" fill="#fbf9f5" stroke="#cfc9be" stroke-width="1"/>
+<rect x="730" y="1410" width="27.200000000000003" height="15" rx="7.5" fill="#161616"/>
+<text x="743.6" y="1421" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.5" font-weight="700" fill="#f3f0ea" text-anchor="middle">F15</text>
+<text x="767.2" y="1421" font-family="'Montserrat','Segoe UI Black','Segoe UI',system-ui,sans-serif" font-size="12" font-weight="800" fill="#161616" text-anchor="start">Scenario in un solo posto</text>
+<text x="734" y="1438" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">Formati di ID e codici, regole del giorno, prefissi e nomi stanno in scenario.py; la descrizione del caso nel blocco</text>
+<text x="734" y="1452" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="10.2" font-weight="400" fill="#4f4c47" text-anchor="start">SCENARIO di lazarus.py, separata dalle regole di comportamento.</text>
+<text x="720" y="1492" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.8" font-weight="400" fill="#8a857c" text-anchor="start">Le giornate sono indicate solo dove sono certe: il commento di app_lazarus/lazarus.py (Giorno 1: tutti i testi, dal</text>
+<text x="720" y="1505" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.8" font-weight="400" fill="#8a857c" text-anchor="start">giorno 3 il recupero RAG), Missione.xlsx per il Giorno 1 e le cartelle dei dati (dati_g1 con 3 file, dati_g2_imprevisti,</text>
+<text x="720" y="1518" font-family="'IBM Plex Mono','Inconsolata','Cascadia Mono',Consolas,monospace" font-size="9.8" font-weight="400" fill="#8a857c" text-anchor="start">dati_g3 con 1005 voci estranee, g3_imprevisti con 500 documenti). Dove non c&#x27;è una giornata, la funzione serve a tutte.</text>
 </svg>
