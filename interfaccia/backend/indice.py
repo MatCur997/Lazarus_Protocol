@@ -326,12 +326,11 @@ class Indice:
                 titolo, testi = spezza(d['id'], d['testo'])
                 pezzi = []
                 for n, t in enumerate(testi):
+                    # L'embedding resta sul solo testo del brano. Provato con titolo + ultima frase del brano precedente davanti (dal secondo
+                    # brano in poi): i vettori medi delle voci lunghe cambiano e il clustering di pertinenza crolla (1523 documenti: del caso
+                    # presi 1/518 invece di 518/518). Il titolo dei brani successivi lo riceve solo il modello, nel prompt (contesto_da_fonti).
                     p = parole(f'{titolo} {t}')
-                    # testo per l'embedding: dal secondo brano in poi il brano non sa più di che documento è (titolo) né come finiva il brano
-                    # prima (un fatto spezzato a metà). Si aggiungono il titolo e l'ultima frase del brano precedente, SOLO per l'embedding: il
-                    # testo dato al modello resta quello del brano, senza ripetizioni. Il primo brano resta com'era (stessa chiave nella cache).
-                    testo_emb = t if n == 0 else f'{titolo}\n{(frasi(testi[n - 1]) or [""])[-1]} {t}'
-                    pezzi.append({'n': n, 'testo': t, 'testo_emb': testo_emb, 'parole': p, 'freq': Counter(p), 'frasi': coppie_di(f'{titolo} {t}'),
+                    pezzi.append({'n': n, 'testo': t, 'parole': p, 'freq': Counter(p), 'frasi': coppie_di(f'{titolo} {t}'),
                                   'codici': codici_del_testo(t)})
             basi[d['id']] = (d['testo'], titolo, pezzi)
             d['titolo'] = titolo
@@ -353,7 +352,7 @@ class Indice:
         self.df_caso = None             # si ricalcola alla prima ricerca (vedi `frequenze_del_caso`)
         self.brani = brani
         for b in brani:         # embedding già calcolati (cache): la ricerca per significato non aspetta il nuovo calcolo
-            b['emb'] = self.cache_emb.get(self._chiave(b['testo_emb'])) if self.embedding_attivo else None
+            b['emb'] = self.cache_emb.get(self._chiave(b['testo'])) if self.embedding_attivo else None
         self._carica_matrice()
         # Le persone si cercano solo nei documenti pertinenti. Se arriveranno gli embedding, la pertinenza la decide il
         # clustering (calcola_pertinenza), che poi ricostruisce l'elenco: farlo qui su tutto l'archivio costerebbe
@@ -402,21 +401,21 @@ class Indice:
             return          # pochi testi: gli embedding non servono e farebbero caricare un secondo modello
         with self.blocco_embedding:
             with self.lock:
-                mancanti = [b for b in self.brani if self._chiave(b['testo_emb']) not in self.cache_emb]
+                mancanti = [b for b in self.brani if self._chiave(b['testo']) not in self.cache_emb]
             errore = None
             try:
                 for k, i in enumerate(range(0, len(mancanti), self.GRUPPO_EMBEDDING), 1):
                     gruppo = mancanti[i:i + self.GRUPPO_EMBEDDING]
-                    vettori = embed([b['testo_emb'] for b in gruppo])
+                    vettori = embed([b['testo'] for b in gruppo])
                     for b, v in zip(gruppo, vettori):
-                        self.cache_emb[self._chiave(b['testo_emb'])] = v
+                        self.cache_emb[self._chiave(b['testo'])] = v
                     if k % self.SALVA_OGNI == 0:
                         self._salva_cache()
             except Exception as e:
                 errore = e
             with self.lock:
                 for b in self.brani:
-                    b['emb'] = self.cache_emb.get(self._chiave(b['testo_emb']))
+                    b['emb'] = self.cache_emb.get(self._chiave(b['testo']))
                 self._carica_matrice()
             if mancanti:
                 self._salva_cache()           # anche dopo un errore: gli embedding già calcolati non si rifanno

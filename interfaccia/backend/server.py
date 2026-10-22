@@ -495,7 +495,9 @@ class Gestore(BaseHTTPRequestHandler):
         corpo = self.corpo_json()
         t = time.perf_counter()
         INDICE.ricarica()
-        INDICE.aggiorna_in_background()
+        # Una cartella intera porta di solito centinaia di documenti nuovi: si aspetta embedding e pertinenza, come prima. In background le
+        # domande fatte nel frattempo vedevano tutto l'archivio come «del caso» (anche le voci estranee). File singoli e rimozioni restano in background.
+        INDICE.calcola_embedding()
         evento = {'nome': 'carica_file', 'ms': ms(t), 'dettaglio': f"{corpo.get('nome', 'cartella')}: {corpo.get('file', 0)} file"}
         EVENTI_CARICAMENTO.append(evento)
         self.json({'documenti': len(INDICE.documenti), 'brani': len(INDICE.brani), 'ms': evento['ms']})
