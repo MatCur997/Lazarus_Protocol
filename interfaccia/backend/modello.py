@@ -1,9 +1,11 @@
 """Parlare con Ollama: generazione della risposta in streaming, estrazione di luoghi/indizi/eventi, embedding."""
 import json
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
+from collections import OrderedDict
 
 import config as cfg
 from config import ISTRUZIONI_ELEMENTI, SCHEMA_ELEMENTI
@@ -16,9 +18,28 @@ def ollama(percorso, corpo=None, timeout=600):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
+_EMBED_RECENTI = OrderedDict()     # (modello, testo) -> vettore, solo per le richieste da un testo solo (domanda, HyDE, profilo)
+_EMBED_RECENTI_MAX = 64
+_BLOCCO_EMBED = threading.Lock()
+
+
 def embed(testi):
+    """Embedding dei testi. Una richiesta da un testo solo (la domanda cercata da più passi: ricerca, salti) si ricorda: la stessa domanda
+    non costa una seconda chiamata a Ollama (30-800 ms, di più se Ollama deve ricaricare il modello di embedding)."""
+    chiave = (cfg.MODELLO_EMBEDDING, testi[0]) if len(testi) == 1 else None
+    if chiave:
+        with _BLOCCO_EMBED:
+            if chiave in _EMBED_RECENTI:
+                _EMBED_RECENTI.move_to_end(chiave)
+                return [_EMBED_RECENTI[chiave]]
     with ollama('/api/embed', {'model': cfg.MODELLO_EMBEDDING, 'input': testi, 'keep_alive': -1}, timeout=120) as r:
-        return json.loads(r.read())['embeddings']
+        vettori = json.loads(r.read())['embeddings']
+    if chiave and vettori:
+        with _BLOCCO_EMBED:
+            _EMBED_RECENTI[chiave] = vettori[0]
+            while len(_EMBED_RECENTI) > _EMBED_RECENTI_MAX:
+                _EMBED_RECENTI.popitem(last=False)
+    return vettori
 
 
 def modelli_disponibili():

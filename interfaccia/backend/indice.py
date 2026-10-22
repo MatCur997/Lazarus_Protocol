@@ -235,14 +235,18 @@ class Indice:
         self.info_pertinenza = {'dettaglio': 'non ancora calcolata: tutti pertinenti', 'pertinenti': None, 'esclusi': 0}
         self.mappa_pertinenza = None
         self.cache_emb = {}
-        self.file_cache = CARTELLA_REGISTRO / 'cache_embedding.json'
+        # Con numpy la cache è una matrice .npy (float32) + l'elenco delle chiavi: si legge in decimi di secondo invece di decine di secondi
+        # (il vecchio JSON pesava ~66 MB) e i vettori restano righe di un solo array, non milioni di float Python. Senza numpy, o se
+        # i vettori hanno dimensioni diverse, si usa ancora il JSON. Un JSON vecchio si legge e viene convertito al primo salvataggio.
+        self.file_cache_json = CARTELLA_REGISTRO / 'cache_embedding.json'
+        self.file_cache_npy = CARTELLA_REGISTRO / 'cache_embedding.npy'
+        self.file_cache_chiavi = CARTELLA_REGISTRO / 'cache_embedding_chiavi.json'
+        self.file_cache = self.file_cache_npy if np is not None else self.file_cache_json
         self.file_esclusi = CARTELLA_REGISTRO / 'non_persone.txt'
         self.esclusi = set()
-        if self.file_cache.exists():
-            try:
-                self.cache_emb = json.loads(self.file_cache.read_text(encoding='utf-8'))
-            except ValueError:
-                self.cache_emb = {}
+        self.cache_emb = self._leggi_cache()
+        if np is not None and self.cache_emb and not self.file_cache_npy.exists():
+            self._salva_cache()         # cache JSON di una versione precedente: si converte subito, non al prossimo documento nuovo
         if self.file_esclusi.exists():
             self.esclusi = {r.strip() for r in self.file_esclusi.read_text(encoding='utf-8').splitlines() if r.strip()}
         # correzioni a mano del segnale "sospetto": nome del file -> true/false (valgono anche nelle sessioni dopo)
@@ -403,9 +407,42 @@ class Indice:
                       + ('La ricerca per significato usa quelli pronti, con le parole chiave.' if pronti else 'Uso solo la ricerca per parole chiave.'))
             self.calcola_pertinenza()
 
+    def _leggi_cache(self):
+        """{chiave: vettore} dalla cache su disco: .npy se c'è (e numpy), altrimenti il JSON."""
+        if np is not None and self.file_cache_npy.exists() and self.file_cache_chiavi.exists():
+            try:
+                chiavi = json.loads(self.file_cache_chiavi.read_text(encoding='utf-8'))
+                matrice = np.load(self.file_cache_npy, allow_pickle=False)
+                if matrice.ndim == 2 and len(chiavi) == len(matrice):
+                    return {k: matrice[i] for i, k in enumerate(chiavi)}
+            except (OSError, ValueError):
+                pass                    # file rovinato (spegnimento a metà scrittura): si ricade sul JSON o si ricalcola
+        if self.file_cache_json.exists():
+            try:
+                return json.loads(self.file_cache_json.read_text(encoding='utf-8'))
+            except ValueError:
+                pass
+        return {}
+
     def _salva_cache(self):
         CARTELLA_REGISTRO.mkdir(exist_ok=True)
-        self.file_cache.write_text(json.dumps(self.cache_emb), encoding='utf-8')
+        if np is not None and self.cache_emb:
+            try:
+                chiavi = list(self.cache_emb)
+                matrice = np.array([self.cache_emb[k] for k in chiavi], dtype=np.float32)
+                if matrice.ndim == 2:
+                    # prima i file temporanei, poi la sostituzione: un'interruzione non lascia una cache a metà
+                    tmp_npy, tmp_chiavi = self.file_cache_npy.with_suffix('.tmp'), self.file_cache_chiavi.with_suffix('.tmp')
+                    with open(tmp_npy, 'wb') as f:
+                        np.save(f, matrice, allow_pickle=False)
+                    tmp_chiavi.write_text(json.dumps(chiavi), encoding='utf-8')
+                    tmp_npy.replace(self.file_cache_npy)
+                    tmp_chiavi.replace(self.file_cache_chiavi)
+                    return
+            except ValueError:
+                pass                    # vettori di dimensioni diverse (cambio del modello di embedding): resta il JSON
+        self.file_cache_json.write_text(
+            json.dumps({k: (v.tolist() if hasattr(v, 'tolist') else v) for k, v in self.cache_emb.items()}), encoding='utf-8')
 
     def _carica_matrice(self):
         """Stato degli embedding dei brani attuali: `embedding_ok` = tutti pronti, `embedding_usabile` = almeno uno. Con numpy costruisce
@@ -455,7 +492,10 @@ class Indice:
         else:
             try:
                 profilo = embed([profilo_del_caso()])[0]
-                medi = {d: [sum(c) / len(v) for c in zip(*v)] for d, v in vettori.items()}
+                if np is not None:       # i vettori della cache .npy sono array: la media si fa in numpy, non colonna per colonna
+                    medi = {d: np.mean(np.asarray(v, dtype=np.float64), axis=0).tolist() for d, v in vettori.items()}
+                else:
+                    medi = {d: [sum(c) / len(v) for c in zip(*v)] for d, v in vettori.items()}
                 presi, somiglianza, dettaglio, mappa = raggruppa_pertinenti(medi, profilo)
             except Exception as e:         # Ollama non risponde: meglio non escludere nulla
                 presi, somiglianza, dettaglio = set(documenti), {}, f'non calcolata ({e}): tutti pertinenti'
@@ -645,7 +685,8 @@ class Indice:
         with self.lock:
             noti = list(self.persone) + list(self.alias)
             for nome in sorted(noti, key=len, reverse=True):
-                if re.search(rf'(?<![\w]){re.escape(nome)}(?![\w])', testo):
+                # `nome in testo` scarta in C quasi tutti i nomi: la regex (lenta, una per nome) parte solo per i pochi candidati
+                if nome in testo and re.search(rf'(?<![\w]){re.escape(nome)}(?![\w])', testo):
                     vero = self.alias.get(nome, nome)
                     if vero not in trovate and vero not in self.esclusi:
                         trovate.append(vero)

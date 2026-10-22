@@ -29,6 +29,10 @@ MAX_TOKEN = 600   # tetto, non obiettivo: con Eventi/Indizi/Ipotesi gemma4:12b a
 MAX_TOKEN_CONVERSAZIONE = 200  # messaggi non sul caso: conversazione libera, senza documenti
 NUM_CTX = 8192    # istruzioni + tutti i documenti pertinenti (~4-5000 token): un contesto fisso evita di ricaricare il modello
 TEMPERATURA = 0.5  # 0 = sempre le stesse parole dei documenti; più alto = riformula di più
+# True = ogni richiesta parte con un codice casuale e Ollama non riusa nulla (sicuro, ma rielabora tutto il prompt: ~3 s prima della prima parola).
+# False = Ollama riusa la parte di prompt uguale alla richiesta precedente (istruzioni, e i documenti se sono gli stessi): più veloce, ma con
+# gemma a volte riprendeva uno stato sbagliato (il modello perdeva il ruolo o citava la domanda prima). Provarlo e confrontare le risposte.
+ISOLA_RICHIESTE = True
 QUI = Path(__file__).resolve().parent
 FILE_ISTRUZIONI = QUI / "istruzioni.txt"
 
@@ -106,7 +110,7 @@ def prepara_richiesta(corpo):
     2. Il contesto non deve mai riempirsi: altrimenti Ollama (--context-shift --keep 4) butta via l'inizio
        del prompt, cioè proprio le istruzioni del ruolo. Se serve, per questa domanda si usa un contesto più grande."""
     messaggi = corpo["messages"]
-    if messaggi and messaggi[0]["role"] == "system":
+    if ISOLA_RICHIESTE and messaggi and messaggi[0]["role"] == "system":
         messaggi[0] = {**messaggi[0], "content": f"[richiesta {secrets.token_hex(3)}]\n{messaggi[0]['content']}"}
     opzioni = corpo.setdefault("options", {})
     contesto = opzioni.get("num_ctx", NUM_CTX)
