@@ -158,6 +158,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .etichetta { font-size: 10.5px; color: var(--tenue); background: transparent; border: 1px solid var(--bordo); border-radius: 2px; padding: 1px 6px; font-family: var(--mono); white-space: nowrap; letter-spacing: .3px; }
 .etichetta.bordeaux { background: var(--testo); border-color: var(--testo); color: var(--pannello); }
 .etichetta.errore { color: var(--errore); border-color: currentColor; }
+.solo-debug { display: none !important; }
+html[data-debug] .solo-debug { display: revert !important; }
+#debug.acceso { color: var(--testata-testo); border-color: #e0a91f; }
 .etichetta.sospetto { color: var(--errore); border-color: currentColor; font-weight: 700; }   /* documento che dà ordini all'assistente */
 .chip.sospetto { color: var(--errore); border-color: var(--errore); }
 .voce.in-corso { opacity: .5; pointer-events: none; }   /* documento in rimozione */

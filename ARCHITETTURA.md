@@ -53,7 +53,7 @@ solo la libreria standard (più `requests`) nel backend.
 | `frontend/bacheca.html` | **Accesso Segreto**: bacheca con le letterine degli indizi e i fili rossi. |
 | `frontend/comune.js` | Funzioni condivise da tutte le pagine: `$`, `esc`, `markdown`, `senzaMarkdown`, `rispostaHtml`, `voltoHtml` (miniatura rotonda del volto). |
 | `frontend/volti/` | Foto delle persone e `volti.json` (elenco con sesso, misure e riquadro del viso). |
-| `frontend/tema.js` | Tema chiaro (carta) / scuro (grigio e panna), ricordato nel browser. Caricato in `<head>` di ogni pagina. |
+| `frontend/tema.js` | Tema chiaro (carta) / scuro (grigio e panna) e **modalità debug**, entrambi ricordati nel browser. Caricato in `<head>` di ogni pagina. |
 | `frontend/app.css` | Stile "fascicolo" di tutte le pagine. **I colori stanno solo nelle variabili in cima** (`:root` = chiaro, `:root[data-tema="scuro"]` = scuro). |
 
 ## Le funzioni dell'applicazione, lato per lato
@@ -97,6 +97,11 @@ solo la libreria standard (più `requests`) nel backend.
   verificate sul Ripetitore Rame») non deve far perdere le parole dell'utente (persona, deposito, settore, pratica). Il riscrittore cambia il minimo
   e lascia i rimandi generici (`ISTRUZIONI_RISCRITTURA`). Le citazioni `[ID]` copiate dalle risposte si tolgono (`pulisci_riscrittura`). Se il modello
   non risponde, la domanda resta com'è. Strumento `riscrivi_domanda`; si spegne con `RISCRIVI_DOMANDE = False`.
+- **Modalità debug (solo per il team)**: di solito l'interfaccia non dice al detective quali documenti sono «sospetti» o «non pertinenti»: lo scopre dalle
+  risposte. Il pulsante «Debug» in alto (o `?debug=1` nell'indirizzo; `?debug=0` la spegne) la accende: tornano le etichette e i pulsanti nell'elenco
+  Documenti, il conteggio «N pertinenti», il ⚠ sulle fonti, il rosso/giallo e l'asse «più vicino al caso» nella RAG view. La variabile globale `DEBUG`
+  (`tema.js`) la leggono gli script delle pagine; la classe `solo-debug` nasconde un elemento HTML fuori dalla modalità. Il backend calcola e invia sempre
+  tutto: nascondere è solo lato pagina.
 - **Documenti sospetti**: un documento con almeno due segnali di ordini all'assistente ("istruzione per l'assistente",
   "ignora G2-01", "rispondi che…", "non citare le fonti") ha il metadato `sospetto` con il motivo (`motivo_sospetto` in
   `indice.py`, ricalcolato a ogni caricamento; correzioni a mano in `registro/sospetti.json`, pulsanti nella scheda
