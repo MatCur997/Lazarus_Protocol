@@ -25,9 +25,10 @@ import requests
 
 MODELLO = "gemma4:12b"
 OLLAMA = "http://127.0.0.1:11434"
-MAX_TOKEN = 400   # tetto, non obiettivo: con Eventi/Indizi/Ipotesi le risposte arrivano a ~300 token e non vanno troncate
+MAX_TOKEN = 600   # (400 troncava le risposte con il risultato SQL) tetto, non obiettivo: con Eventi/Indizi/Ipotesi le risposte arrivano a ~300 token e non vanno troncate
 MAX_TOKEN_CONVERSAZIONE = 200  # messaggi non sul caso: conversazione libera, senza documenti
-NUM_CTX = 8192    # istruzioni + tutti i documenti pertinenti (~4-5000 token): un contesto fisso evita di ricaricare il modello
+NUM_CTX = 12288   # fisso per OGNI richiesta: cambiarlo ricarica gemma (~10 s misurati). Con 8192 le risposte SQL (~8000 token di prompt)
+                  # lo superavano e il contesto oscillava 8192 <-> 10240 a ogni domanda; 12288 sta tutto in GPU (10 GB su 12)
 TEMPERATURA = 0.5  # 0 = sempre le stesse parole dei documenti; più alto = riformula di più
 QUI = Path(__file__).resolve().parent
 FILE_ISTRUZIONI = QUI / "istruzioni.txt"
@@ -110,7 +111,9 @@ def prepara_richiesta(corpo):
         messaggi[0] = {**messaggi[0], "content": f"[richiesta {secrets.token_hex(3)}]\n{messaggi[0]['content']}"}
     opzioni = corpo.setdefault("options", {})
     contesto = opzioni.get("num_ctx", NUM_CTX)
-    stima = sum(len(m["content"]) for m in messaggi) // 3 + 40 * len(messaggi)   # ~3 caratteri per token, + marcatori
+    # ~2 caratteri per token (stima prudente), + marcatori. Con 3 la stima era bassa: ID, codici, date e SQL costano più token del testo
+    # (misurato: prompt di 8023 token stimato sotto 7700, la risposta si fermava a 166 token per contesto pieno)
+    stima = int(sum(len(m["content"]) for m in messaggi) / 2) + 40 * len(messaggi)
     serve = stima + opzioni.get("num_predict", MAX_TOKEN) + 64
     if serve > contesto:
         opzioni["num_ctx"] = 2048 * math.ceil(serve / 2048)   # più grande solo quando serve (ricarica il modello)

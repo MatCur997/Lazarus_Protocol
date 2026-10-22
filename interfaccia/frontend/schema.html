@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schema logico · Lazzaro</title>
+<script src="tema.js"></script>
+<link rel="stylesheet" href="app.css">
+<style>
+  /* Schema logico: il percorso di una domanda (e dei documenti caricati) attraverso il modello. Clic su un blocco = dettagli. */
+  body { overflow-y: auto; }
+  .scheda .pagina { max-width: 1240px; }
+  .pagina h1 { margin: 0 0 4px; font: 900 28px/1.1 var(--titoli); text-transform: uppercase; }
+  .sotto-titolo { color: var(--tenue); font-size: 13px; max-width: 820px; }
+  .comandi-schema { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 6px; align-items: center; }
+  .comandi-schema .gruppo { display: flex; gap: 0; border: 1px solid var(--bordo); }
+  .comandi-schema button { border: 0; background: var(--pannello); color: var(--tenue); padding: 7px 12px; font: 700 11px/1 var(--titoli);
+    letter-spacing: 1px; text-transform: uppercase; cursor: pointer; }
+  .comandi-schema button + button { border-left: 1px solid var(--bordo); }
+  .comandi-schema button.attivo { background: var(--testo); color: var(--pannello); }
+  .comandi-schema .etichetta-gruppo { font: 400 10.5px/1 var(--mono); color: var(--debole); text-transform: uppercase; letter-spacing: .8px; margin: 0 4px 0 10px; }
+  .disposizione { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; margin-top: 8px; }
+  @media (max-width: 900px) { .disposizione { grid-template-columns: 1fr; } }
+  .tela { background: var(--scheda); border: 1px solid var(--bordo); overflow-x: auto; }
+  .tela svg { display: block; width: 100%; min-width: 640px; height: auto; stroke: none; }
+  .tela svg text { stroke: none; }   /* app.css dà il contorno alle icone svg: sui testi li impasterebbe */
+  .nodo { cursor: pointer; }
+  .nodo rect.corpo { fill: var(--pannello); stroke: var(--bordo); stroke-width: 1.2; transition: stroke .15s, opacity .2s; }
+  .nodo text { fill: var(--testo); font: 700 13px var(--titoli); pointer-events: none; }
+  .nodo text.sotto { fill: var(--tenue); font: 400 10.5px var(--mono); }
+  .nodo text.misura { fill: var(--debole); font: 400 10px var(--mono); }
+  .nodo.tipo-modello rect.corpo { stroke: #c6352f; stroke-width: 1.6; }
+  .nodo.tipo-regole rect.corpo { stroke-dasharray: 5 3; }
+  .nodo.tipo-dati rect.corpo { fill: var(--scheda); }
+  .nodo:hover rect.corpo, .nodo:focus-visible rect.corpo { stroke: var(--testo); }
+  .nodo.scelto rect.corpo { stroke: var(--testo); stroke-width: 2.6; }
+  .nodo.spento { opacity: .22; }
+  .arco path { fill: none; stroke: var(--debole); stroke-width: 1.4; transition: opacity .2s, stroke .2s; }
+  .arco.tratteggio path { stroke-dasharray: 5 4; }
+  .arco text { fill: var(--tenue); font: 400 10px var(--mono); }
+  .arco.acceso path { stroke: #c6352f; stroke-width: 2.2; }
+  .arco.acceso text { fill: #c6352f; }
+  .arco.spento { opacity: .12; }
+  .arco.acceso path.flusso { stroke-dasharray: 6 10; animation: scorre 1s linear infinite; }
+  @keyframes scorre { to { stroke-dashoffset: -16; } }
+  @media (prefers-reduced-motion: reduce) { .arco.acceso path.flusso { animation: none; } }
+  .gruppo-ricerca rect { fill: none; stroke: var(--bordo); stroke-dasharray: 2 4; }
+  .gruppo-ricerca text { fill: var(--debole); font: 400 10px var(--mono); text-transform: uppercase; letter-spacing: 1px; }
+  .dettagli { background: var(--pannello); border: 1px solid var(--bordo); padding: 16px 18px; position: sticky; top: 12px; }
+  .dettagli h2 { font: 900 16px/1.2 var(--titoli); text-transform: uppercase; margin: 0 0 4px; }
+  .dettagli .tipo { font: 400 10.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .8px; color: var(--debole); }
+  .dettagli p { font-size: 13px; line-height: 1.55; margin: 10px 0; }
+  .dettagli ul { font-size: 12.5px; line-height: 1.5; padding-left: 18px; margin: 8px 0; }
+  .dettagli code { font: 11.5px var(--mono); background: var(--scheda); padding: 1px 4px; }
+  .dettagli .dal-vivo { border-top: 1px dashed var(--bordo); margin-top: 12px; padding-top: 10px; font-size: 12px; color: var(--tenue); }
+  .dettagli .dal-vivo b { color: var(--testo); font-family: var(--mono); font-weight: 400; }
+  .legenda-schema { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11.5px; color: var(--tenue); margin-top: 8px; }
+  .legenda-schema span::before { content: ''; display: inline-block; width: 16px; height: 10px; margin-right: 6px; vertical-align: -1px;
+    border: 1.4px solid var(--bordo); background: var(--pannello); }
+  .legenda-schema .l-modello::before { border-color: #c6352f; }
+  .legenda-schema .l-regole::before { border-style: dashed; }
+  .legenda-schema .l-dati::before { background: var(--scheda); }
+  /* schema SQL: tabelle con chiavi e collegamenti */
+  .tabella-er { cursor: pointer; }
+  .tabella-er rect.corpo { fill: var(--pannello); stroke: var(--bordo); stroke-width: 1.2; }
+  .tabella-er rect.testa { fill: var(--testo); }
+  .tabella-er text.nome-t { fill: var(--pannello); font: 700 13px var(--mono); }
+  .tabella-er text.righe-t { fill: var(--pannello); font: 400 10px var(--mono); opacity: .75; }
+  .tabella-er text.col { fill: var(--testo); font: 400 12px var(--mono); }
+  .tabella-er text.tipo-col { fill: var(--debole); font: 400 10.5px var(--mono); }
+  .tabella-er text.chiave { font: 700 9.5px var(--mono); }
+  .tabella-er text.chiave.pk { fill: #b8860b; } .tabella-er text.chiave.fk { fill: #c6352f; }
+  .tabella-er rect.riga-usata { fill: rgba(198, 53, 47, .12); }
+  .tabella-er.usata rect.corpo { stroke: #c6352f; stroke-width: 2; }
+  .tabella-er.scelto rect.corpo { stroke: var(--testo); stroke-width: 2.6; }
+  .tabella-er:hover rect.corpo { stroke: var(--testo); }
+  .legame path { fill: none; stroke: var(--tenue); stroke-width: 1.4; }
+  .legame.usato path { stroke: #c6352f; stroke-width: 2.2; }
+  .legame text { fill: var(--tenue); font: 700 11px var(--mono); }
+  .legame.dedotto path { stroke-dasharray: 5 4; }
+  .legame text.copertura { font: 400 9.5px var(--mono); fill: var(--debole); }
+  .tabella-er text.ipotesi-t { fill: var(--pannello); font: 400 9.5px var(--mono); opacity: .8; }
+  #scelta-db select { margin-left: 6px; padding: 4px 6px; border: 1px solid var(--bordo); background: var(--pannello); color: var(--testo); font: 12px var(--mono); }
+  .ultima tr.esclusa td { color: var(--tenue); }
+  .ultima pre.sintesi { border-left: 3px solid #c6352f; }
+  .ultima details { margin: 6px 0; } .ultima summary { cursor: pointer; font-size: 12.5px; }
+  .missione .parametri { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 8px 0; }
+  .missione .parametri label { display: flex; flex-direction: column; font: 400 10.5px var(--mono); text-transform: uppercase; color: var(--debole); gap: 3px; }
+  .missione .parametri input { padding: 6px 8px; border: 1px solid var(--bordo); background: var(--scheda); color: var(--testo); font: 12.5px var(--mono); min-width: 170px; }
+  .missione .azioni { display: flex; gap: 6px; }
+  .missione ul.storia, .missione ul.registro { font-size: 12.5px; padding-left: 18px; margin: 6px 0; }
+  .missione ul.registro li { margin-bottom: 10px; }
+  .missione .cambiato { color: #c6352f; font-weight: 700; } .missione .uguale { color: #2f7a4b; }
+  .legame.usato text { fill: #c6352f; }
+  .arco.ritorno path { stroke-dasharray: 4 3; }
+  .ultima { margin-top: 14px; background: var(--pannello); border: 1px solid var(--bordo); padding: 14px 16px; }
+  .ultima h3 { font: 700 12px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .8px; margin: 0 0 8px; }
+  .ultima pre { white-space: pre-wrap; font: 12px/1.5 var(--mono); background: var(--scheda); padding: 10px 12px; margin: 8px 0; }
+  .ultima table { border-collapse: collapse; font: 12px var(--mono); width: 100%; }
+  .ultima th, .ultima td { border-bottom: 1px solid var(--bordo); padding: 4px 8px; text-align: left; }
+  .ultima th { color: var(--debole); font-weight: 400; text-transform: uppercase; font-size: 10.5px; }
+  .ultima tr.valida td { background: rgba(47, 122, 75, .12); }
+  .ultima .verdetto-sql { margin-top: 8px; font-size: 12.5px; }
+  .ultima .domanda-sql { color: var(--tenue); font-size: 12.5px; }
+  .tabella-col { width: 100%; border-collapse: collapse; font: 11.5px var(--mono); margin: 8px 0; }
+  .tabella-col td { border-bottom: 1px dashed var(--bordo); padding: 3px 4px; vertical-align: top; }
+  .tabella-col td.ruolo { color: var(--tenue); font-family: inherit; }
+</style>
+</head>
+<body class="scheda">
+<header class="testata" style="padding-bottom:14px">
+  <div class="riga-alta">
+    <div class="marchio">
+      <div class="logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="5"/><rect x="14" y="3" width="7" height="5"/><rect x="8.5" y="16" width="7" height="5"/><path d="M6.5 8v4h11V8M12 12v4"/></svg></div>
+      <div>Lazzaro<small>Schema logico · il percorso dentro il modello</small></div>
+    </div>
+    <div class="spazio"></div>
+    <a class="ragview-btn" href="index.html" title="Torna alla centrale">← Centrale</a>
+    <button class="tema-btn" id="tema" title="Cambia tema: chiaro (carta) o scuro">
+      <span class="per-scuro"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Scuro</span>
+      <span class="per-chiaro"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Chiaro</span>
+    </button>
+  </div>
+</header>
+<div class="pagina">
+  <h1>Schema logico</h1>
+  <div class="sotto-titolo">Lo schema SQL del database caricato (tabelle, chiavi, collegamenti) e i processi con cui il modello lo interroga.
+    Clicca una tabella o un blocco per i dettagli; in rosso le tabelle e le colonne usate dall'ultima query del modello.</div>
+
+  <div class="comandi-schema">
+    <div class="gruppo" id="viste">
+      <button data-vista="sql" class="attivo">Schema SQL</button>
+      <button data-vista="processo">Processo SQL</button>
+      <button data-vista="domanda">Percorso domanda</button>
+      <button data-vista="caricamento">Caricamento</button>
+    </div>
+    <label class="etichetta-gruppo" id="scelta-db" hidden>Database <select></select></label>
+    <span class="etichetta-gruppo" id="etichetta-percorsi">Percorso</span>
+    <div class="gruppo" id="percorsi"></div>
+  </div>
+
+  <div class="disposizione">
+    <div>
+      <div class="tela"><svg id="schema" role="img" aria-label="Schema logico del modello"></svg></div>
+      <div class="legenda-schema" id="legenda-er" hidden>
+        <span style="--x:0">PK chiave primaria · FK chiave esterna · N:1 molte righe verso una</span>
+      </div>
+      <div class="legenda-schema" id="legenda-flusso">
+        <span class="l-modello">usa il modello linguistico (gemma)</span>
+        <span class="l-regole">solo regole, nessun modello</span>
+        <span class="l-dati">dati salvati</span>
+        <span>calcolo locale (embedding, statistica)</span>
+      </div>
+    </div>
+    <aside class="dettagli" id="dettagli" aria-live="polite"></aside>
+  </div>
+  <section class="ultima" id="ultima" hidden></section>
+  <section class="ultima missione" id="missione" hidden></section>
+</div>
+
+<script>
+// Ogni blocco: posizione nel disegno (viewBox 960 di larghezza), tipo (modello | regole | dati | calcolo),
+// lo strumento del pannello "Strumenti" da cui leggere i tempi reali, e la spiegazione mostrata a destra.
+const W = 190, H = 58;
+const VISTE = {
+  domanda: {
+    altezza: 1070,
+    percorsi: {
+      caso: 'Domanda sul caso', sql: 'Codici e accessi (SQL)', chat: 'Sulla chat', sospetti: 'File sospetti / estranei', altro: 'Fuori tema',
+    },
+    gruppo: { x: 130, y: 300, w: 700, h: 100, titolo: 'Ricerca ibrida sui brani' },
+    nodi: [
+      { id: 'domanda', x: 385, y: 20, tipo: 'dati', titolo: 'Domanda', sotto: 'dalla chat',
+        testo: "Il messaggio scritto in chat, con gli scambi ancora visibili (la cronologia) e le ultime due domande, che servono per le domande di seguito come \"e lui?\"." },
+      { id: 'instrada', x: 385, y: 110, tipo: 'regole', titolo: 'Instradamento', sotto: 'regole, poi classificatore', strumento: 'controlla_pertinenza',
+        testo: "Prima di cercare qualunque cosa il programma esamina la domanda e decide la strada, in quest'ordine:",
+        punti: ['domanda sulla chat ("cosa ti ho chiesto?", "mostrami la query") → cronologia',
+                'codici, accessi, permessi, deposito chiuso, tracciamento → database SQL',
+                'file sospetti, malevoli o estranei → anche i documenti non pertinenti',
+                'altrimenti il classificatore decide se è CASO o ALTRO'],
+        codice: 'server.py · api_chiedi, motore.py · controlla_pertinenza' },
+      { id: 'chat', x: 20, y: 220, tipo: 'regole', titolo: 'Cronologia', sotto: 'risposta senza modello', strumento: 'rispondi_dalla_cronologia',
+        testo: "Le domande sulla conversazione si risolvono leggendo gli scambi visibili: nessuna ricerca e nessun modello. Qui passa anche \"mostrami la query\", che ripesca la query SQL della risposta precedente.",
+        codice: 'motore.py · domanda_sulla_chat' },
+      { id: 'sql_via', x: 260, y: 220, tipo: 'regole', titolo: 'Via database', sotto: 'codici · accessi · deposito',
+        testo: "La domanda riguarda un codice, un permesso o un accesso. Si cercano comunque i documenti (servono a capire quale contenitore, pratica o persona interrogare), poi entra in gioco l'agente SQL. Le richieste di modificare il database vengono rifiutate: è in sola lettura.",
+        codice: 'motore.py · RE_DOMANDA_SQL, chiede_al_database' },
+      { id: 'sospetti', x: 500, y: 220, tipo: 'regole', titolo: 'Sospetti / estranei', sotto: 'tutti i documenti',
+        testo: "Se la domanda chiede dei file malevoli, fuorvianti o estranei all'indagine, la ricerca considera anche i documenti esclusi dal clustering. I file sospetti possono confermare solo gli elementi di manipolazione, mai diventare indizi del caso.",
+        strumento: 'aggiungi_sospetti', codice: 'motore.py · chiede_dei_documenti, RE_CHIEDE_SOSPETTI' },
+      { id: 'classif', x: 740, y: 220, w: 200, tipo: 'modello', titolo: 'Classificatore', sotto: 'CASO o ALTRO · gemma',
+        testo: "Per le domande normali il modello legge la domanda e i soli titoli dei documenti e risponde CASO o ALTRO. Un saluto o una domanda generica diventano conversazione senza documenti.",
+        codice: 'motore.py · controlla_pertinenza' },
+      { id: 'bm25', x: 150, y: 325, tipo: 'calcolo', titolo: 'BM25', sotto: 'parole esatte', strumento: 'cerca_parole_chiave',
+        testo: "Ricerca per parole: trova i brani che contengono le stesse parole della domanda, pesando quelle rare. È la più affidabile per codici (RV628, ARCH-6408) e nomi propri.",
+        codice: 'indice.py · cerca' },
+      { id: 'sem', x: 385, y: 325, tipo: 'calcolo', titolo: 'Semantica', sotto: 'embedding bge-m3', strumento: 'cerca_semantica',
+        testo: "Ricerca per significato: la domanda diventa un vettore con bge-m3 (in Ollama) e si cercano i brani con vettore simile, anche se usano parole diverse.",
+        codice: 'indice.py · cerca' },
+      { id: 'hyde', x: 620, y: 325, tipo: 'modello', titolo: 'HyDE', sotto: 'solo se trova poco', strumento: 'cerca_hyde',
+        testo: "Se la ricerca semantica trova poco (similarità sotto 0,60), gemma scrive una risposta ipotetica e si cercano i brani simili a quella. Altrimenti si salta, per non perdere tempo.",
+        codice: 'indice.py · cerca, config.py · HYDE' },
+      { id: 'rrf', x: 385, y: 430, tipo: 'calcolo', titolo: 'Fusione + pertinenza', sotto: 'RRF · solo documenti del caso', strumento: 'fondi_risultati',
+        testo: "Le classifiche vengono fuse con la Reciprocal Rank Fusion. Restano solo i brani dei documenti pertinenti (decisi dal clustering al caricamento), al massimo 2 brani per documento; se c'è spazio entrano tutti i documenti pertinenti trovati, altrimenti i primi 10. Se la domanda nomina un giorno, si cerca anche dentro quel giorno.",
+        codice: 'indice.py · cerca, limita_per_documento · motore.py · cerca_fonti' },
+      { id: 'salti', x: 385, y: 520, tipo: 'regole', titolo: 'Salti sui riferimenti', sotto: 'codici e nomi propri', strumento: 'segui_riferimenti',
+        testo: "Ricerca a più salti: dai primi documenti trovati si leggono codici e nomi propri rari, e si aggiungono i documenti che li citano. È così che da LUME si arriva a RV628, al deposito Bastione Cavo, al settore H3 e a Luca Serra.",
+        codice: 'motore.py · segui_riferimenti' },
+      { id: 'copie', x: 385, y: 610, tipo: 'regole', titolo: 'Copie accorpate', sotto: 'una fonte, non N conferme',
+        testo: "Se lo stesso testo compare identico in più documenti, vale come una sola fonte: nel prompt resta una volta, con la nota \"copie inoltrate, NON conferme indipendenti\".",
+        codice: 'indice.py · firma_contenuto, accorpa_copie' },
+      { id: 'note', x: 140, y: 710, tipo: 'regole', titolo: 'Note di contesto', sotto: 'giorni · archivio', strumento: 'filtra_giorno',
+        testo: "Nel prompt si aggiungono la cronologia per giorno (ogni documento sa a quale giorno appartiene: cartella Dati_giorno_N, \"giorno operativo NN\", prefisso G2-) e, quando serve, l'elenco dei file estranei o sospetti.",
+        codice: 'motore.py · note_per_prompt, nota_giorni, nota_archivio' },
+      { id: 'sql', x: 740, y: 610, w: 200, tipo: 'modello', titolo: 'Agente SQL', sotto: 'gemma scrive la query', strumento: 'interroga_database',
+        testo: "Gemma riceve lo schema del database, le regole della missione e i valori citati nei documenti trovati, e scrive una query. La query gira in sola lettura (solo SELECT, tabelle ammesse, tempo limitato); se fallisce o non trova nulla riprova, fino a 3 tentativi.",
+        punti: ['regole: data della missione, permesso attivo, valido_fino', 'collega i valori del DB ai documenti del dossier', 'risultato citato come [DB]'],
+        codice: 'sql.py · agente_sql, interroga_database' },
+      { id: 'altro', x: 740, y: 430, w: 200, tipo: 'regole', titolo: 'Conversazione', sotto: 'nessun documento',
+        testo: "Domanda fuori tema: il modello risponde come in una chat normale, senza documenti, e non nasce nessun indizio." },
+      { id: 'prompt', x: 385, y: 710, tipo: 'dati', titolo: 'Prompt', sotto: 'istruzioni + fonti + note',
+        testo: "Istruzioni dell'investigatore (lazarus.py), brani scelti con il loro ID, note di contesto, risultato SQL e cronologia della chat. Finestra di contesto: 8192 token.",
+        codice: 'motore.py · costruisci_messaggi' },
+      { id: 'genera', x: 385, y: 800, tipo: 'modello', titolo: 'Risposta', sotto: 'gemma4:12b', strumento: 'genera_risposta',
+        testo: "Il modello scrive la risposta usando solo le fonti ricevute e citandole tra parentesi quadre ([ARCH-5721], [DB]). La risposta arriva in chat parola per parola.",
+        codice: 'motore.py · genera' },
+      { id: 'risposta', x: 385, y: 890, tipo: 'dati', titolo: 'Chat', sotto: 'citazioni evidenziate', strumento: 'estrai_persone',
+        testo: "La risposta compare in chat con le citazioni cliccabili; le persone citate vengono riconosciute e collegate ai loro documenti. Sotto le risposte SQL c'è il riquadro con la query." },
+      { id: 'estrai', x: 385, y: 980, tipo: 'modello', titolo: 'Indizi verificati', sotto: 'luoghi · indizi · eventi', strumento: 'estrai_elementi',
+        testo: "Dopo la risposta (fuori dal tempo misurato) si estraggono luoghi, indizi ed eventi. Entrano nella colonna destra solo se hanno riscontro nei documenti citati: i documenti non pertinenti non diventano mai indizi.",
+        codice: 'server.py · estrai_con_modello, verifica_citazione' },
+      { id: 'bacheca', x: 690, y: 980, w: 200, tipo: 'dati', titolo: 'Bacheca', sotto: 'Accesso Segreto',
+        testo: "Gli elementi verificati finiscono sulla bacheca dell'investigatore, collegati dai fili rossi." },
+    ],
+    archi: [
+      ['domanda', 'instrada', 'caso sql chat sospetti altro'],
+      ['instrada', 'chat', 'chat'], ['instrada', 'sql_via', 'sql'], ['instrada', 'sospetti', 'sospetti'], ['instrada', 'classif', 'caso altro'],
+      ['classif', 'altro', 'altro', 'ALTRO'],
+      ['classif', 'GRUPPO', 'caso', 'CASO'], ['sql_via', 'GRUPPO', 'sql'], ['sospetti', 'GRUPPO', 'sospetti'],
+      ['bm25', 'rrf', 'caso sql sospetti'], ['sem', 'rrf', 'caso sql sospetti'], ['hyde', 'rrf', 'caso sql sospetti', '', true],
+      ['sem', 'hyde', 'caso sql sospetti', '< 0,60', true],
+      ['rrf', 'salti', 'caso sql sospetti'], ['salti', 'copie', 'caso sql sospetti'],
+      ['copie', 'prompt', 'caso sql sospetti', 'fonti'], ['copie', 'sql', 'sql', 'valori citati'],
+      ['sql', 'prompt', 'sql', 'righe + query'], ['note', 'prompt', 'caso sql sospetti'], ['altro', 'prompt', 'altro'],
+      ['prompt', 'genera', 'caso sql sospetti altro'], ['genera', 'risposta', 'caso sql sospetti altro'],
+      ['chat', 'risposta', 'chat', 'senza modello'],
+      ['risposta', 'estrai', 'caso sql sospetti'], ['estrai', 'bacheca', 'caso sql sospetti'],
+    ],
+  },
+  processo: {
+    altezza: 1010,
+    percorsi: {},
+    nodi: [
+      { id: 'p_domanda', x: 385, y: 20, tipo: 'dati', titolo: 'Domanda', sotto: 'es. "traccia LUME, giorno 4"',
+        testo: "La domanda dell'utente. Il tool SQL entra in gioco solo se c'è un database caricato." },
+      { id: 'p_instrada', x: 385, y: 110, tipo: 'regole', titolo: 'Instradamento SQL', sotto: 'regole, senza modello', strumento: 'controlla_pertinenza',
+        testo: 'La domanda va al database se:',
+        punti: ['nomina codici, accessi, permessi, varchi, il deposito chiuso o da aprire, il tracciamento di un contenitore',
+                'contiene un codice numerico di 5-6 cifre, o chiede se un codice è valido / scaduto / revocato',
+                'riguarda un giorno coperto solo da un database (giorno 4 = accessi_g_4.sqlite)'],
+        codice: 'motore.py · chiede_al_database, RE_DOMANDA_SQL' },
+      { id: 'p_rifiuto', x: 700, y: 110, w: 220, tipo: 'regole', titolo: 'Rifiuto / parametri', sotto: 'scritture · aggiornamenti centrale',
+        testo: "Chiedere di cancellare, modificare o inserire DATI (tabelle, permessi, codici; anche un'iniezione come '; DROP TABLE) riceve una risposta fissa: il database è in sola lettura. Un aggiornamento della centrale (\"nuovo istante 2026-11-04 12:30\", \"il canale del veicolo è Delta\") invece cambia i parametri della missione, si registra con il prima e il dopo, e le verifiche successive li usano.",
+        codice: 'sql.py · RE_SCRITTURA · server.py · api_chiedi' },
+      { id: 'p_fonti', x: 385, y: 200, tipo: 'calcolo', titolo: 'Ricerca nei dossier', sotto: 'BM25 + semantica + salti', strumento: 'fondi_risultati',
+        testo: "Prima del database si cercano i documenti: dicono QUALE persona, deposito, settore e pratica interrogare (LUME → RV628 → Bastione Cavo → H3 → Luca Serra). Il nome LUME non è nel database: serve solo a trovare la pratica.",
+        codice: 'motore.py · cerca_fonti, segui_riferimenti' },
+      { id: 'p_schema', x: 110, y: 290, w: 210, tipo: 'dati', titolo: 'Profilo + missione', sotto: 'mappa con le prove',
+        testo: "Il profilo di TUTTO il database (non un campione): righe, valori distinti, NULL, intervalli di date, etichette frequenti e le relazioni. Quelle senza vincolo (archivio recuperato) si deducono confrontando i valori: una colonna i cui valori sono tutti chiavi di un'altra tabella la collega a quella (copertura 100%). Con il profilo arrivano le ipotesi sulle tabelle e le regole della missione, con i parametri in vigore (istante, varco, canale del veicolo).",
+        codice: 'sql.py · profila, schema_testo · missioni.json' },
+      { id: 'p_valori', x: 385, y: 290, tipo: 'regole', titolo: 'Valori citati', sotto: 'database ↔ dossier',
+        testo: "Si confrontano i valori di testo del database (nomi, depositi, settori, pratiche) con i documenti: restano solo quelli citati davvero nei dossier ('Luca Serra' in ARCH-3097, 'RV628' in ARCH-5721). I documenti che collegano più valori sono i ponti più forti. Le esche dei dossier citano valori che nel database non esistono.",
+        codice: 'sql.py · valori_citati' },
+      { id: 'p_agente', x: 385, y: 380, tipo: 'modello', titolo: 'Agente SQL', sotto: 'gemma scrive {"sql": ...}', strumento: 'interroga_database',
+        testo: 'Gemma riceve profilo, regole, valori citati e domanda, e risponde solo con un JSON {"sql": "SELECT ..."} (temperatura 0). Tre modi:',
+        punti: ['mappa ("mostrami la mappa delle tabelle"): il profilo, senza query',
+                'piano a passi per le domande risolutive (operatori autorizzati, terminale e chiave): una query per regola, ognuna vede i risultati dei passi prima',
+                'una query per tutto il resto: esplorazione (campioni, conteggi, distinti, riferimenti mancanti), verifiche, codici'],
+        codice: 'sql.py · agente_sql, ISTRUZIONI_SQL, ISTRUZIONI_PASSO' },
+      { id: 'p_autorizza', x: 385, y: 470, tipo: 'regole', titolo: 'Autorizzatore', sotto: 'sola lettura', vivo: 'funzioni',
+        testo: 'Ogni operazione della query passa da un autorizzatore SQLite:',
+        punti: ['ammessa solo la lettura (SELECT) delle tabelle del database', 'tabelle di sistema (sqlite_master) vietate',
+                'solo funzioni innocue (count, lower, date...)', 'connessione aperta in sola lettura (mode=ro, query_only)'],
+        codice: 'sql.py · interroga_database' },
+      { id: 'p_esegui', x: 385, y: 560, tipo: 'calcolo', titolo: 'Esecuzione', sotto: 'SQLite locale',
+        testo: 'La query gira sul file .sqlite con un limite di passi (niente query infinite) e al massimo 50 righe lette.',
+        codice: 'sql.py · interroga_database' },
+      { id: 'p_controllo', x: 385, y: 650, tipo: 'regole', titolo: 'Controllo esito', sotto: 'max 3 tentativi',
+        testo: "Se la query non va bene, l'agente riceve il motivo e ne scrive un'altra (al massimo 3 tentativi):",
+        punti: ['JOIN incoerente con le relazioni (es. la revoca collegata alla squadra invece che al permesso) → correggi, prima di eseguire',
+                'ORDER BY ... LIMIT 1 per scegliere "il primo" → vietato dalla missione',
+                'errore SQL o operazione negata → correggi la query', '0 righe → un filtro usa un valore che non esiste',
+                'più di 10 righe senza filtri né aggregazioni → elenco in blocco, rifiutato'],
+        codice: 'sql.py · controlla_query, controlla_join, troppo_ampia' },
+      { id: 'p_verdetto', x: 385, y: 740, tipo: 'regole', titolo: 'Esiti e sintesi', sotto: 'calcolati dal codice',
+        testo: "Le date non le calcola il modello. Il programma aggiunge a ogni riga la colonna esito: intervalli con inizio incluso e fine esclusa, fine NULL = senza scadenza; sospensioni e revoche escludono quando sono già efficaci; stati FUORI_SERVIZIO o BLOCCATO escludono; canale diverso da quello del veicolo esclude. Poi la sintesi: coppie SANITARIO + SICUREZZA della stessa squadra, terminali con finestra e chiave valide, esclusi con il motivo. Più possibilità o un parametro mancante = non si sceglie: si chiede alla centrale.",
+        codice: 'sql.py · annota, sintesi_varco · motore.py · verdetto_permessi' },
+      { id: 'p_prompt', x: 385, y: 830, tipo: 'dati', titolo: 'Prompt', sotto: 'dossier + query + verdetto',
+        testo: 'Al modello arrivano i brani dei dossier, la query eseguita, le righe con il nome di ogni colonna, il verdetto e i documenti in cui compaiono i valori usati.',
+        codice: 'motore.py · testo_risultato_sql' },
+      { id: 'p_risposta', x: 385, y: 920, tipo: 'modello', titolo: 'Risposta', sotto: 'codice [DB] + fonti', strumento: 'genera_risposta',
+        testo: "La risposta dà per primo il permesso valido (codice, persona, deposito, settore, pratica, scadenza): il codice è citato [DB], il resto con gli ID dei dossier. Sotto la risposta c'è il riquadro con la query; \"mostrami la query\" la ripropone in un blocco sql." },
+    ],
+    archi: [
+      ['p_domanda', 'p_instrada', ''], ['p_instrada', 'p_rifiuto', '', 'scrittura'], ['p_instrada', 'p_fonti', '', 'lettura'],
+      ['p_fonti', 'p_valori', ''], ['p_valori', 'p_agente', ''], ['p_schema', 'p_agente', ''],
+      ['p_agente', 'p_autorizza', '', 'query'], ['p_autorizza', 'p_esegui', '', 'SELECT ammessa'], ['p_esegui', 'p_controllo', ''],
+      ['p_controllo', 'p_agente', '', 'errore · 0 righe · troppe', false, true],
+      ['p_controllo', 'p_verdetto', '', 'righe ok'], ['p_verdetto', 'p_prompt', ''], ['p_prompt', 'p_risposta', ''],
+    ],
+  },
+  caricamento: {
+    altezza: 660,
+    percorsi: { testi: 'Documenti di testo', db: 'Database SQLite' },
+    nodi: [
+      { id: 'file', x: 385, y: 20, tipo: 'dati', titolo: 'File caricati', sotto: '+ · cartella · zip', strumento: 'carica_file',
+        testo: "I file arrivano con il pulsante +, con il pulsante cartella (la struttura delle cartelle viene conservata) o dentro uno zip. Finiscono in caricati/." },
+      { id: 'formato', x: 385, y: 110, tipo: 'regole', titolo: 'Riconoscimento', sotto: 'per estensione e contenuto',
+        testo: "Formati di testo: txt, md, csv, json, xml, html, docx, pdf, xlsx. I file .sqlite/.db vengono accettati solo se iniziano davvero con l'intestazione SQLite." },
+      { id: 'leggi', x: 180, y: 210, tipo: 'regole', titolo: 'Lettura', sotto: 'testo + metadati',
+        testo: "Ogni file diventa testo. Dai metadati si ricavano titolo, cartella e giorno (Dati_giorno_N, \"giorno operativo NN\", prefisso G2-); i file che si spacciano per fonti affidabili vengono segnati come sospetti.",
+        codice: 'indice.py · giorno_di' },
+      { id: 'brani', x: 180, y: 300, tipo: 'regole', titolo: 'Brani', sotto: 'il testo a pezzi',
+        testo: "Il testo di ogni documento viene diviso in brani: sono le unità che la ricerca trova e che finiscono nel prompt." },
+      { id: 'embed', x: 180, y: 390, tipo: 'calcolo', titolo: 'Embedding', sotto: 'bge-m3 · in cache',
+        testo: "Ogni brano diventa un vettore con bge-m3 in Ollama. I vettori restano in cache: ricaricando gli stessi file non si ricalcolano." },
+      { id: 'cluster', x: 180, y: 480, tipo: 'calcolo', titolo: 'Pertinenza', sotto: 'k-means a 3 livelli', strumento: 'pertinenza', vivo: 'pertinenza',
+        testo: "Un vettore per documento (media dei brani, tolta la media dell'archivio), poi k-means con K ≈ √(N/2):",
+        punti: ['livello 1: cluster vicini al profilo del caso (soglia di Otsu)',
+                'livello 2: si tolgono i documenti più vicini agli estranei; rientra chi ha la maggioranza dei 5 vicini nel dominio',
+                'livello 3: in una cartella con almeno il 60% di documenti del caso, entrano tutti'],
+        codice: 'pertinenza.py · pertinenti' },
+      { id: 'persone', x: 180, y: 570, tipo: 'regole', titolo: 'Persone e giorni', sotto: 'indici per la chat',
+        testo: "Sui documenti pertinenti si costruisce l'indice delle persone (per collegarle nelle risposte) e la cronologia per giorno.",
+        codice: 'indice.py' },
+      { id: 'db', x: 600, y: 210, tipo: 'dati', titolo: 'Database', sotto: 'sola lettura', vivo: 'database',
+        testo: "Il database non viene spezzato in brani: si legge il suo schema (tabelle e colonne) e resta a disposizione dell'agente SQL, che può solo leggerlo.",
+        codice: 'sql.py · e_database, descrivi, schema_testo' },
+      { id: 'valori', x: 600, y: 300, tipo: 'regole', titolo: 'Valori citati', sotto: 'DB ↔ documenti',
+        testo: "Alla domanda, i valori del database che compaiono anche nei documenti (codici di contenitori, pratiche, persone) vengono segnalati all'agente SQL, insieme ai documenti che ne collegano più di uno.",
+        codice: 'sql.py · valori_citati' },
+      { id: 'pronto', x: 385, y: 570, tipo: 'dati', titolo: 'Indice pronto', sotto: 'per le domande',
+        testo: "Brani, vettori, documenti pertinenti e database sono pronti: ogni domanda usa questi dati senza ricalcolarli." },
+    ],
+    archi: [
+      ['file', 'formato', 'testi db'], ['formato', 'leggi', 'testi', 'testo'], ['formato', 'db', 'db', 'SQLite'],
+      ['leggi', 'brani', 'testi'], ['brani', 'embed', 'testi'], ['embed', 'cluster', 'testi'], ['cluster', 'persone', 'testi'],
+      ['persone', 'pronto', 'testi'], ['db', 'valori', 'db'], ['valori', 'pronto', 'db'],
+    ],
+  },
+};
+
+const NS = 'http://www.w3.org/2000/svg';
+const svg = document.getElementById('schema');
+const pannello = document.getElementById('dettagli');
+let vista = 'domanda', percorso = null, scelto = null;
+let strumenti = {}, stato = {};
+
+const el = (tag, attr = {}, figli = []) => {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attr)) e.setAttribute(k, v);
+  figli.forEach((f) => e.appendChild(f));
+  return e;
+};
+const testo = (x, y, t, cls) => { const e = el('text', { x, y, 'text-anchor': 'middle', class: cls || '' }); e.textContent = t; return e; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const misura = (ms) => ms == null ? '' : ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
+
+function punti(a, b) {
+  // da dove a dove va un arco: in basso -> in alto se i blocchi sono su righe diverse, di lato se sulla stessa riga
+  const wa = a.w || W, wb = b.w || W;
+  if (Math.abs(a.y - b.y) < 20) {
+    const dx = b.x > a.x;
+    return [dx ? a.x + wa : a.x, a.y + H / 2, dx ? b.x : b.x + wb, b.y + H / 2, 'lato'];
+  }
+  return [a.x + wa / 2, a.y + H, b.x + wb / 2, b.y, 'giu'];
+}
+
+function disegna() {
+  if (vista === 'sql') return disegna_tabelle();
+  const V = VISTE[vista];
+  svg.setAttribute('viewBox', `0 0 960 ${V.altezza}`);
+  svg.replaceChildren();
+  const defs = el('defs', {}, [el('marker', { id: 'punta', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' },
+    [el('path', { d: 'M0 0L10 5L0 10z', fill: 'context-stroke' })])]);
+  svg.appendChild(defs);
+  const per_id = Object.fromEntries(V.nodi.map((n) => [n.id, n]));
+  const nel_percorso = new Set();
+  if (V.gruppo) {
+    const g = V.gruppo;
+    svg.appendChild(el('g', { class: 'gruppo-ricerca' }, [el('rect', { x: g.x, y: g.y, width: g.w, height: g.h, rx: 4 }),
+      Object.assign(el('text', { x: g.x + 8, y: g.y + 14 }), { textContent: g.titolo })]));
+  }
+  for (const [da, a, chi, etichetta, tratteggio, ritorno] of V.archi) {
+    const A = per_id[da];
+    const B = a === 'GRUPPO' ? { x: Math.min(Math.max(A.x + (A.w || W) / 2, V.gruppo.x + 20), V.gruppo.x + V.gruppo.w - 20) - W / 2, y: V.gruppo.y, w: W } : per_id[a];
+    let [x1, y1, x2, y2, modo] = punti(A, B);
+    if (ritorno) {           // ciclo: esce a destra e rientra a destra del blocco precedente
+      [x1, y1, x2, y2, modo] = [A.x + (A.w || W), A.y + H / 2, B.x + (B.w || W), B.y + H / 2, 'ritorno'];
+    }
+    const d = modo === 'ritorno'
+      ? `M${x1} ${y1} C${x1 + 150} ${y1} ${x2 + 150} ${y2} ${x2} ${y2}`
+      : modo === 'lato'
+      ? `M${x1} ${y1} C${(x1 + x2) / 2} ${y1} ${(x1 + x2) / 2} ${y2} ${x2} ${y2}`
+      : `M${x1} ${y1} C${x1} ${(y1 + y2) / 2} ${x2} ${(y1 + y2) / 2} ${x2} ${y2}`;
+    const acceso = percorso && chi.split(' ').includes(percorso);
+    if (acceso) { nel_percorso.add(da); if (a === 'GRUPPO') ['bm25', 'sem'].forEach((n) => nel_percorso.add(n)); else nel_percorso.add(a); }
+    const g = el('g', { class: `arco${tratteggio ? ' tratteggio' : ''}${ritorno ? ' ritorno' : ''}${percorso ? (acceso ? ' acceso' : ' spento') : ''}` },
+      [el('path', { d, 'marker-end': 'url(#punta)' })]);
+    if (acceso) g.appendChild(el('path', { d, class: 'flusso' }));
+    if (etichetta) g.appendChild(testo(modo === 'ritorno' ? x1 + 118 : (x1 + x2) / 2 + (modo === 'lato' ? 0 : 8), (y1 + y2) / 2 - 4, etichetta, ''))
+      .setAttribute('text-anchor', modo === 'lato' || modo === 'ritorno' ? 'middle' : 'start');
+    svg.appendChild(g);
+  }
+  if (percorso && nel_percorso.has('sem')) nel_percorso.add('hyde');
+  for (const n of V.nodi) {
+    const w = n.w || W;
+    const s = strumenti[n.strumento];
+    const classi = ['nodo', `tipo-${n.tipo}`, scelto === n.id ? 'scelto' : '', percorso && !nel_percorso.has(n.id) ? 'spento' : ''].join(' ');
+    const g = el('g', { class: classi, tabindex: 0, role: 'button', 'aria-label': `${n.titolo}: ${n.sotto}` }, [
+      el('rect', { class: 'corpo', x: n.x, y: n.y, width: w, height: H, rx: 3 }),
+      testo(n.x + w / 2, n.y + 22, n.titolo),
+      testo(n.x + w / 2, n.y + 39, n.sotto, 'sotto'),
+    ]);
+    if (s && s.ms_medio != null) g.appendChild(testo(n.x + w - 6, n.y + 52, misura(s.ms_medio), 'misura')).setAttribute('text-anchor', 'end');
+    g.addEventListener('click', () => scegli(n.id));
+    g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scegli(n.id); } });
+    svg.appendChild(g);
+  }
+}
+
+function scegli(id) {
+  scelto = id;
+  if (vista === 'sql') return scegli_tabella(id);
+  const n = VISTE[vista].nodi.find((x) => x.id === id);
+  const tipi = { modello: 'usa gemma4:12b', regole: 'regole, senza modello', dati: 'dati', calcolo: 'calcolo locale' };
+  let html = `<div class="tipo">${tipi[n.tipo]}</div><h2>${esc(n.titolo)}</h2><p>${esc(n.testo)}</p>`;
+  if (n.punti) html += `<ul>${n.punti.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>`;
+  if (n.codice) html += `<p><code>${esc(n.codice)}</code></p>`;
+  const vivo = [];
+  const s = strumenti[n.strumento];
+  if (s) {
+    vivo.push(`Chiamate in questa sessione: <b>${s.chiamate}</b>${s.ms_medio != null ? ` · media <b>${misura(s.ms_medio)}</b>` : ''}`);
+    if (s.ultimo && s.ultimo.dettaglio) vivo.push(`Ultima volta: <b>${esc(s.ultimo.dettaglio)}</b>`);
+  }
+  if (n.vivo === 'pertinenza' && stato.pertinenza) vivo.push(`Adesso: <b>${esc(stato.pertinenza.dettaglio)}</b>`);
+  if (n.vivo === 'database') vivo.push(stato.database && stato.database.length ? `Caricato: <b>${esc(stato.database.join(', '))}</b>` : 'Nessun database caricato.');
+  if (n.id === 'genera' || n.id === 'classif') vivo.push(`Modello attivo: <b>${esc(stato.modello || '—')}</b>`);
+  if (n.vivo === 'funzioni' && db_schema && db_schema.database) vivo.push(`Funzioni ammesse: <b>${esc(db_schema.database.funzioni.join(', '))}</b>`);
+  if (n.id === 'p_verdetto' && db_schema && db_schema.ultima && db_schema.ultima.verdetto) vivo.push(`Ultimo verdetto: <b>${esc(db_schema.ultima.verdetto)}</b>`);
+  if (n.id === 'rrf' && stato.top_k) vivo.push(`Documenti in archivio: <b>${stato.documenti}</b> · brani <b>${stato.brani}</b> · TOP_K <b>${stato.top_k}</b>`);
+  if (vivo.length) html += `<div class="dal-vivo">${vivo.join('<br>')}</div>`;
+  pannello.innerHTML = html;
+  disegna();
+}
+
+function bottoni_percorsi() {
+  const box = document.getElementById('percorsi');
+  box.replaceChildren();
+  const senza = vista === 'sql' || !Object.keys(VISTE[vista].percorsi).length;
+  box.hidden = senza;
+  document.getElementById('etichetta-percorsi').hidden = senza;
+  document.getElementById('legenda-er').hidden = vista !== 'sql';
+  document.getElementById('legenda-flusso').hidden = vista === 'sql';
+  document.getElementById('ultima').hidden = !(vista === 'sql' || vista === 'processo') || !(db_schema && db_schema.ultima);
+  document.getElementById('missione').hidden = !(vista === 'sql' || vista === 'processo')
+    || !(db_schema && db_schema.database && Object.keys(db_schema.database.parametri || {}).length);
+  if (db_schema) mostra_scelta_db();
+  if (senza) return;
+  const voci = { '': 'Tutto', ...VISTE[vista].percorsi };
+  for (const [k, v] of Object.entries(voci)) {
+    const b = document.createElement('button');
+    b.textContent = v;
+    b.className = (percorso || '') === k ? 'attivo' : '';
+    b.addEventListener('click', () => { percorso = k || null; bottoni_percorsi(); disegna(); });
+    box.appendChild(b);
+  }
+}
+
+document.querySelectorAll('#viste button').forEach((b) => b.addEventListener('click', () => {
+  vista = b.dataset.vista; percorso = null; scelto = null;
+  document.querySelectorAll('#viste button').forEach((x) => x.classList.toggle('attivo', x === b));
+  bottoni_percorsi(); scegli(vista === 'sql' ? tabella_principale() : VISTE[vista].nodi[0].id);
+}));
+
+async function aggiorna() {
+  try {
+    const [st, sr, db] = await Promise.all([fetch('/api/stato').then((r) => r.json()), fetch('/api/strumenti').then((r) => r.json()),
+                                            fetch('/api/database/schema?db=' + encodeURIComponent(db_nome)).then((r) => r.json())]);
+    stato = st;
+    strumenti = Object.fromEntries(sr.map((s) => [s.nome, s]));
+    db_schema = db;
+    if (db.database && !db_nome) db_nome = db.database.nome;
+    const nuova = JSON.stringify([db.ultima, db.registro, db.database && db.database.parametri, db.database && db.database.storia_parametri]);
+    if (nuova !== ultima_vista) { ultima_vista = nuova; mostra_ultima(); mostra_missione(); }
+    mostra_scelta_db();
+  } catch (e) { /* server non raggiungibile: lo schema resta senza tempi */ }
+  bottoni_percorsi();
+  scegli(scelto || (vista === 'sql' ? tabella_principale() : VISTE[vista].nodi[0].id));
+}
+
+// ------------------------------------------------------------------ schema SQL (profilo letto dal database)
+let db_schema = null, ultima_vista = null, db_nome = '';
+const RIGA = 22, TESTA = 36, LT = 212, PASSO_X = 242;
+
+function tabelle_db() { return db_schema && db_schema.database ? db_schema.database.tabelle : []; }
+
+function tabella_principale() {
+  const t = tabelle_db();
+  // la tabella con più collegamenti in uscita: accessi, r08 (permessi)...
+  const uscite = (x) => x.colonne.filter((c) => c.fk).length;
+  return (t.slice().sort((a, b) => uscite(b) - uscite(a))[0] || {}).nome || null;
+}
+
+function mostra_scelta_db() {
+  const box = document.getElementById('scelta-db');
+  const elenco = (db_schema && db_schema.elenco) || [];
+  box.hidden = elenco.length < 2 || !(vista === 'sql' || vista === 'processo');
+  if (box.hidden) return;
+  const sel = box.querySelector('select');
+  const firma = elenco.map((d) => d.nome).join('|');
+  if (sel.dataset.firma !== firma) {
+    sel.innerHTML = elenco.map((d) => `<option value="${esc(d.nome)}">${esc(d.titolo || d.nome)}</option>`).join('');
+    sel.dataset.firma = firma;
+  }
+  sel.value = db_nome;
+}
+
+function usate() {
+  // tabelle e colonne nominate nell'ultima query (o nei passi) del modello su questo database
+  const u = db_schema && db_schema.ultima ? db_schema.ultima : null;
+  const testo = u ? [u.sql || '', ...(u.passi || []).map((p) => p.sql || '')].join(' ').toLowerCase() : '';
+  const tabelle = new Set(), colonne = new Set();
+  if (!testo) return { tabelle, colonne };
+  for (const t of tabelle_db()) {
+    if (new RegExp(`\\b(from|join)\\s+"?${t.nome.toLowerCase()}\\b`).test(testo)) {
+      tabelle.add(t.nome);
+      for (const c of t.colonne) if (new RegExp(`\\b${c.nome.toLowerCase()}\\b`).test(testo)) colonne.add(`${t.nome}.${c.nome}`);
+    }
+  }
+  return { tabelle, colonne };
+}
+
+function posizioni(tabelle) {
+  // a livelli: a sinistra le tabelle che non puntano a nessuno (anagrafiche: archivi, persone, squadre), a destra quelle
+  // che puntano alle altre (permessi, revoche...). livello = 1 + il livello più alto tra le tabelle a cui punta
+  const per_nome = Object.fromEntries(tabelle.map((t) => [t.nome, t]));
+  const livello = {};
+  const calcola = (n, visti = new Set()) => {
+    if (livello[n] !== undefined) return livello[n];
+    if (visti.has(n)) return 0;
+    visti.add(n);
+    const fuori = per_nome[n].colonne.filter((c) => c.fk && per_nome[c.fk.tabella] && c.fk.tabella !== n);
+    return (livello[n] = fuori.length ? 1 + Math.max(...fuori.map((c) => calcola(c.fk.tabella, visti))) : 0);
+  };
+  tabelle.forEach((t) => calcola(t.nome));
+  const colonne = Math.max(...Object.values(livello)) + 1;
+  const passo = Math.min(PASSO_X, (960 - 20 - LT) / Math.max(1, colonne - 1));
+  const y = {}, pos = {};
+  for (const t of tabelle.slice().sort((a, b) => a.nome.localeCompare(b.nome))) {
+    const l = livello[t.nome];
+    y[l] = y[l] || 20;
+    pos[t.nome] = { x: 10 + l * passo, y: y[l] };
+    y[l] += TESTA + t.colonne.length * RIGA + 26;
+  }
+  return { pos, altezza: Math.max(...Object.values(y)) + 10 };
+}
+
+function disegna_tabelle() {
+  svg.replaceChildren();
+  const tabelle = tabelle_db();
+  if (!tabelle.length) {
+    svg.setAttribute('viewBox', '0 0 960 160');
+    svg.appendChild(testo(480, 80, db_schema ? 'Nessun database caricato: carica la cartella con il file .sqlite.' : 'carico lo schema…', 'sotto'));
+    return;
+  }
+  const { pos, altezza } = posizioni(tabelle);
+  const u = usate();
+  svg.setAttribute('viewBox', `0 0 960 ${altezza}`);
+  const riga_y = (t, nome) => pos[t].y + TESTA + tabelle.find((x) => x.nome === t).colonne.findIndex((c) => c.nome === nome) * RIGA + RIGA / 2 - 3;
+  // collegamenti: N righe della tabella che punta -> 1 riga della tabella a cui punta; tratteggio = dedotto dai valori
+  for (const t of tabelle) {
+    for (const c of t.colonne.filter((c) => c.fk && pos[c.fk.tabella])) {
+      const a = pos[t.nome], b = pos[c.fk.tabella];
+      const verso_destra = b.x > a.x;
+      const x1 = verso_destra ? a.x + LT : a.x, x2 = verso_destra ? b.x : b.x + LT;
+      const y1 = riga_y(t.nome, c.nome), y2 = riga_y(c.fk.tabella, c.fk.colonna);
+      const usato = u.colonne.has(`${t.nome}.${c.nome}`) && u.tabelle.has(c.fk.tabella);
+      const g = el('g', { class: `legame${usato ? ' usato' : ''}${c.fk.dedotta ? ' dedotto' : ''}` }, [
+        el('path', { d: `M${x1} ${y1} C${(x1 + x2) / 2} ${y1} ${(x1 + x2) / 2} ${y2} ${x2} ${y2}` })]);
+      g.appendChild(testo(x1 + (verso_destra ? 9 : -9), y1 - 4, 'N'));
+      g.appendChild(testo(x2 + (verso_destra ? -8 : 8), y2 - 4, '1'));
+      if (c.fk.dedotta) {
+        const pct = testo((x1 + x2) / 2, (y1 + y2) / 2 - 3, `${Math.round(c.fk.copertura * 100)}%`, 'copertura');
+        g.appendChild(pct);
+      }
+      svg.appendChild(g);
+    }
+  }
+  const ipotesi = (db_schema.database.ipotesi || {});
+  for (const t of tabelle) {
+    const { x, y } = pos[t.nome];
+    const h = TESTA + t.colonne.length * RIGA;
+    const sotto = ipotesi[t.nome] ? ipotesi[t.nome].split(' (')[0] : '';
+    const g = el('g', { class: `tabella-er${u.tabelle.has(t.nome) ? ' usata' : ''}${scelto === t.nome ? ' scelto' : ''}`, tabindex: 0, role: 'button',
+                        'aria-label': `Tabella ${t.nome}, ${t.righe} righe${sotto ? ', ' + sotto : ''}` }, [
+      el('rect', { class: 'corpo', x, y, width: LT, height: h, rx: 3 }),
+      el('rect', { class: 'testa', x, y, width: LT, height: TESTA - 6, rx: 3 }),
+      Object.assign(el('text', { x: x + 10, y: y + (sotto ? 14 : 20), class: 'nome-t' }), { textContent: t.nome }),
+      Object.assign(el('text', { x: x + LT - 10, y: y + (sotto ? 14 : 20), class: 'righe-t', 'text-anchor': 'end' }), { textContent: `${t.righe} righe` }),
+    ]);
+    if (sotto) g.appendChild(Object.assign(el('text', { x: x + 10, y: y + 26, class: 'ipotesi-t' }), { textContent: sotto.length > 34 ? sotto.slice(0, 33) + '…' : sotto }));
+    t.colonne.forEach((c, i) => {
+      const yy = y + TESTA + i * RIGA;
+      if (u.colonne.has(`${t.nome}.${c.nome}`)) g.appendChild(el('rect', { class: 'riga-usata', x: x + 1, y: yy - 3, width: LT - 2, height: RIGA }));
+      const chiave = c.pk ? 'PK' : c.fk ? 'FK' : '';
+      if (chiave) g.appendChild(Object.assign(el('text', { x: x + 10, y: yy + 12, class: `chiave ${chiave.toLowerCase()}` }), { textContent: chiave }));
+      g.appendChild(Object.assign(el('text', { x: x + 34, y: yy + 12, class: 'col' }), { textContent: c.nome }));
+      const destra = c.fk ? `→ ${c.fk.tabella}` : c.data ? 'data' : (c.tipo || '').toLowerCase();
+      g.appendChild(Object.assign(el('text', { x: x + LT - 10, y: yy + 12, class: 'tipo-col', 'text-anchor': 'end' }), { textContent: destra }));
+    });
+    g.addEventListener('click', () => scegli(t.nome));
+    g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scegli(t.nome); } });
+    svg.appendChild(g);
+  }
+}
+
+function descrivi_colonna(c) {
+  const p = [];
+  if (c.pk) p.push('chiave primaria');
+  if (c.fk) p.push(`→ ${c.fk.tabella}.${c.fk.colonna} ${c.fk.dedotta ? `(dedotta: ${Math.round(c.fk.copertura * 100)}% dei valori trovati)` : '(vincolo dichiarato)'}`);
+  if (c.data) p.push(`date ${c.min} … ${c.max}`);
+  if (c.valori) p.push(c.valori.map(([v, k]) => `${v} ×${k}`).join(', '));
+  else if (!c.pk) p.push(`${c.distinti} distinti`);
+  if (c.null) p.push(`NULL ${c.null}`);
+  return p.join(' · ');
+}
+
+function scegli_tabella(nome) {
+  const t = tabelle_db().find((x) => x.nome === nome);
+  if (!t) {
+    pannello.innerHTML = '<div class="tipo">schema SQL</div><h2>Nessun database</h2><p>Carica una cartella con un file .sqlite (Dati_giorno_4, Imprevisti_g_4) con il pulsante cartella o con +.</p>';
+    disegna();
+    return;
+  }
+  const ipotesi = (db_schema.database.ipotesi || {})[t.nome];
+  const entrano = (db_schema.database.relazioni || []).filter((r) => r.a === t.nome);
+  const u = usate();
+  let html = `<div class="tipo">tabella · ${t.righe} righe · ${esc(db_schema.database.nome)}</div><h2>${esc(t.nome)}</h2>`;
+  html += `<p>${ipotesi ? `<b>Ipotesi:</b> ${esc(ipotesi)}` : 'Nessuna ipotesi registrata per questa tabella.'}</p>`;
+  html += '<table class="tabella-col">' + t.colonne.map((c) => `<tr><td>${c.pk ? 'PK ' : c.fk ? 'FK ' : ''}${esc(c.nome)}</td>`
+    + `<td>${esc((c.tipo || '').toLowerCase())}</td><td class="ruolo">${esc(descrivi_colonna(c))}</td></tr>`).join('') + '</table>';
+  if (entrano.length) html += `<p class="ruolo">Puntano qui: ${entrano.map((r) => `${esc(r.da)}.${esc(r.colonna)} (${r.dichiarata ? 'vincolo' : Math.round(r.copertura * 100) + '% su ' + r.valori + ' valori'})`).join(', ')}</p>`;
+  if (t.campione && t.campione.length) html += `<p class="ruolo">Campione: ${t.campione.map((r) => esc(r.map((v) => v ?? 'NULL').join(' | '))).join('<br>')}</p>`;
+  if (u.tabelle.has(t.nome)) {
+    const cols = [...u.colonne].filter((x) => x.startsWith(t.nome + '.')).map((x) => x.split('.')[1]);
+    html += `<div class="dal-vivo">Usata dall'ultima interrogazione: <b>${esc(cols.join(', ') || 'sì')}</b></div>`;
+  }
+  pannello.innerHTML = html;
+  disegna();
+}
+
+function tabella_html(colonne, righe) {
+  const ie = colonne.indexOf('esito');
+  return `<table><tr>${colonne.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>
+    ${righe.map((r) => `<tr class="${ie >= 0 ? (String(r[ie]).startsWith('VALIDO') ? 'valida' : 'esclusa') : ''}">${r.map((v) => `<td>${esc(v ?? '')}</td>`).join('')}</tr>`).join('')}</table>`;
+}
+
+function mostra_ultima() {
+  const box = document.getElementById('ultima');
+  const u = db_schema && db_schema.ultima;
+  if (!u) { box.innerHTML = ''; return; }
+  const n = u.tentativi.length;
+  let corpo;
+  if (u.mappa) corpo = '<p class="domanda-sql">Mappa del database: profilo di tutte le tabelle, nessuna query.</p>';
+  else if (u.passi && u.passi.length) {
+    corpo = (u.sintesi ? `<pre class="sintesi">${esc(u.sintesi)}</pre>` : '') + u.passi.map((p, k) =>
+      `<details${k === 0 ? ' open' : ''}><summary>Passo ${k + 1} · ${esc(p.scopo)} · ${p.errore ? 'errore' : p.totale + ' righe'}</summary>
+        <pre>${esc(p.sql || '(nessuna query)')}</pre>${p.errore ? `<div class="avviso">${esc(p.errore)}</div>` : tabella_html(p.colonne, p.righe)}
+        ${p.totale > p.righe.length ? `<div class="domanda-sql">… altre ${p.totale - p.righe.length} righe</div>` : ''}</details>`).join('');
+  } else {
+    corpo = `<pre>${esc(u.sql || '(nessuna query)')}</pre>${u.errore ? `<div class="avviso">${esc(u.errore)}</div>` : tabella_html(u.colonne, u.righe)}
+      ${u.verdetto ? `<div class="verdetto-sql">${esc(u.verdetto)}</div>` : ''}`;
+  }
+  box.innerHTML = `<h3>Ultima interrogazione del modello · ${esc(db_schema.database.nome)}</h3><div class="domanda-sql">Domanda: ${esc(u.domanda)}</div>${corpo}
+    <div class="domanda-sql">${n} tentativ${n === 1 ? 'o' : 'i'}${u.tentativi.filter((x) => x.errore).map((x) => ` · scartato: ${esc(x.errore)}`).join('')}</div>`;
+}
+
+// ------------------------------------------------------------------ missione: parametri della centrale e registro
+function mostra_missione() {
+  const box = document.getElementById('missione');
+  const d = db_schema && db_schema.database;
+  if (!d || !Object.keys(d.parametri || {}).length) { box.hidden = true; return; }
+  box.hidden = !(vista === 'sql' || vista === 'processo');
+  const campi = Object.entries(d.parametri).map(([k, v]) =>
+    `<label>${esc(k)}<input name="${esc(k)}" value="${esc(v ?? '')}" placeholder="non indicato"></label>`).join('');
+  const storia = (d.storia_parametri || []).slice(-6).reverse().map((s) => `<li>${esc(s.quando)} · ${esc(s.origine)}: ${Object.entries(s.modifiche)
+    .map(([k, m]) => `${esc(k)} ${esc(m.prima ?? 'non indicato')} → ${esc(m.dopo ?? 'valore iniziale')}`).join('; ')}</li>`).join('');
+  const registro = (db_schema.registro || []).map((v) => `<li>
+      <div><b>${esc(v.quando)}</b> · ${esc(v.domanda)}</div>
+      <div class="domanda-sql">${Object.entries(v.parametri).map(([k, x]) => `${esc(k)}=${esc(x ?? '—')}`).join(' · ')}
+        · ${v.passi.length} quer${v.passi.length === 1 ? 'y' : 'y'}${v.errore ? ' · errore' : ''}
+        ${v.ripete ? (v.cambiato ? ' · <span class="cambiato">RISULTATO CAMBIATO</span>' : ' · <span class="uguale">risultato uguale al test precedente</span>') : ''}
+        ${v.parametri_cambiati && Object.keys(v.parametri_cambiati).length ? ` (parametri cambiati: ${Object.entries(v.parametri_cambiati).map(([k, [a, b]]) => `${esc(k)} ${esc(a ?? '—')} → ${esc(b ?? '—')}`).join(', ')})` : ''}</div>
+      ${v.sintesi ? `<details><summary>sintesi</summary><pre>${esc(v.sintesi)}</pre></details>` : ''}
+      <button class="btn-piccolo grigio" data-ripeti="${esc(v.domanda)}">Ripeti test</button></li>`).join('');
+  box.innerHTML = `<h3>Missione · ${esc(d.titolo || d.nome)}</h3>
+    <form id="parametri" class="parametri">${campi}<div class="azioni"><button class="btn-piccolo" type="submit">Aggiorna parametri</button>
+      <button class="btn-piccolo grigio" type="button" id="ripristina">Valori iniziali</button></div></form>
+    ${storia ? `<div class="domanda-sql">Aggiornamenti della centrale:</div><ul class="storia">${storia}</ul>` : ''}
+    <details><summary>Regole in vigore (${d.regole.length})</summary><ul class="storia">${d.regole.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></details>
+    <h3 style="margin-top:14px">Registro dei test (${(db_schema.registro || []).length})</h3>
+    ${registro ? `<ul class="registro">${registro}</ul>` : '<div class="domanda-sql">Nessuna interrogazione ancora: fai una domanda in chat (es. "quali operatori autorizzati possono aprire il varco?").</div>'}`;
+  box.querySelector('#parametri').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const parametri = Object.fromEntries(new FormData(e.target).entries());
+    await fetch('/api/missione/parametri', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ database: d.nome, parametri }) });
+    ultima_vista = null; aggiorna();
+  });
+  box.querySelector('#ripristina').addEventListener('click', async () => {
+    await fetch('/api/missione/parametri', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ database: d.nome, ripristina: true }) });
+    ultima_vista = null; aggiorna();
+  });
+  box.querySelectorAll('[data-ripeti]').forEach((b) => b.addEventListener('click', async () => {
+    b.disabled = true; b.textContent = 'In corso… (il modello risponde in chat)';
+    try {     // stessa domanda, parametri di adesso: la risposta va nello storico e il registro dice se è cambiato qualcosa
+      const r = await fetch('/api/chiedi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ domanda: b.dataset.ripeti, vista: [] }) });
+      await r.text();
+    } finally { ultima_vista = null; aggiorna(); }
+  }));
+}
+
+document.querySelector('#scelta-db select').addEventListener('change', (e) => {
+  db_nome = e.target.value; scelto = null; ultima_vista = null; aggiorna();
+});
+
+vista = 'sql';
+bottoni_percorsi();
+
+aggiorna();
+setInterval(aggiorna, 10000);
+</script>
+</body>
+</html>

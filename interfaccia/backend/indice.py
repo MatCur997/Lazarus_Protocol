@@ -16,10 +16,11 @@ from config import (CARTELLA_CARICATI, CARTELLA_REGISTRO, ESTENSIONI_MARKUP, EST
                     SOGLIA_BRANI, SOGLIA_CARATTERI, TOP_K)
 from modello import embed
 from pertinenza import pertinenti as raggruppa_pertinenti
+from sql import descrivi, e_database
 from testo import estrai_nomi, frasi, ms, parole
 
 
-RE_GIORNO_CARTELLA = re.compile(r'giorn[oi]?[ _-]*0*(\d{1,2})(?!\d)', re.I)        # Dati_giorno_2, Imprevisti_giorno_2
+RE_GIORNO_CARTELLA = re.compile(r'(?:giorn[oi]?|(?<![a-z])g)[ _-]*0*(\d{1,2})(?!\d)', re.I)   # Dati_giorno_2, Imprevisti_g_4, G2-imprevisti
 RE_GIORNO_TESTO = re.compile(r'giorno\s+operativo\s+0*(\d{1,2})(?!\d)', re.I)      # "giorno operativo 02"
 RE_GIORNO_ID = re.compile(r'^G(\d{1,2})-\d', re.I)                                 # G2-01
 
@@ -33,6 +34,18 @@ def giorno_di(percorso, testo, doc_id, interno=None):
             return int(m[1])
     m = RE_GIORNO_TESTO.search(testo[:1500]) or RE_GIORNO_ID.match(interno or '') or RE_GIORNO_ID.match(doc_id)
     return int(m[1]) if m else None
+
+
+def copia_di_tabella(percorso, tabelle_db):
+    """Vero se il CSV è l'esportazione di una tabella di un database che sta nella stessa cartella o sopra
+    (stesso nome e stesse colonne): come documento ripeterebbe i dati del database e sporcherebbe ricerca e clustering."""
+    try:
+        with open(percorso, encoding='utf-8-sig', errors='ignore') as f:
+            intestazione = [c.strip().strip('"') for c in f.readline().strip().split(',')]
+    except OSError:
+        return False
+    return any(Path(percorso).is_relative_to(db.parent) and tabelle.get(Path(percorso).stem) == intestazione
+               for db, tabelle in tabelle_db.items())
 
 
 def profilo_del_caso():
@@ -225,6 +238,7 @@ class Indice:
         self.embedding_ok = False
         self.info_pertinenza = {'dettaglio': 'non ancora calcolata: tutti pertinenti', 'pertinenti': None, 'esclusi': 0}
         self.mappa_pertinenza = None
+        self.database = []               # database caricati per il tool SQL
         self.cache_emb = {}
         self.file_cache = CARTELLA_REGISTRO / 'cache_embedding.json'
         self.file_esclusi = CARTELLA_REGISTRO / 'non_persone.txt'
@@ -275,16 +289,31 @@ class Indice:
 
     # -- caricamento
     def ricarica(self):
-        docs = {}
+        docs, database = {}, []
         dati = Path(cfg.CARTELLA_DATI).resolve() if cfg.CARTELLA_DATI else None    # di solito nessuna (solo --dati)
         for cartella, origine in ((dati, 'squadra'), (CARTELLA_CARICATI, 'caricato')):
             if not cartella or not cartella.exists():
                 continue
-            for p in sorted(cartella.rglob('*')):
+            tutti = sorted(cartella.rglob('*'))
+            tabelle_db = {}     # database della cartella -> {tabella: colonne}: i CSV che li duplicano non sono documenti
+            for q in tutti:
+                if q.is_file() and q.suffix.lower() in cfg.ESTENSIONI_DATABASE and e_database(q):
+                    try:
+                        tabelle_db[q] = descrivi(q)['tabelle']
+                    except Exception:
+                        pass
+            for p in tutti:
+                if p.suffix.lower() == '.csv' and copia_di_tabella(p, tabelle_db):
+                    continue    # TABELLE_CSV/r03.csv = tabella r03 di archivio_recuperato.sqlite: la legge il tool SQL
                 if origine == 'caricato' and dati and p.resolve().is_relative_to(dati):
                     continue    # la cartella dati della squadra può stare dentro caricati/: si legge una volta sola
                 if p.name == Path(cfg.DIARIO_NOTEBOOK).name:
                     continue    # il diario delle risposte non è un documento: il modello citerebbe se stesso
+                if p.is_file() and p.suffix.lower() in cfg.ESTENSIONI_DATABASE:
+                    if e_database(p):   # database (es. accessi_g_4.sqlite): non è testo, lo usa il tool SQL
+                        rel = p.relative_to(cartella) if p.is_relative_to(cartella) else p
+                        database.append({'percorso': str(p), 'nome': p.name, 'giorno': giorno_di(rel, '', p.stem)})
+                    continue
                 if p.is_file() and p.suffix.lower() in ESTENSIONI_OK - {'.zip'}:
                     try:
                         testo = leggi_file(p)
@@ -304,6 +333,7 @@ class Indice:
             self._segna_sospetto(d)
         with self.lock:
             self.documenti = docs
+            self.database = database      # database caricati (tool SQL), es. accessi_g_4.sqlite
             self._costruisci()
 
     def _costruisci(self):
@@ -374,8 +404,11 @@ class Indice:
                 for b in self.brani:
                     b['emb'] = self.cache_emb.get(self._chiave(b['testo']))
                 self.embedding_ok = all(b['emb'] for b in self.brani) and bool(self.brani)
-            CARTELLA_REGISTRO.mkdir(exist_ok=True)
-            self.file_cache.write_text(json.dumps(self.cache_emb), encoding='utf-8')
+            if mancanti:        # 66 MB: si riscrive solo se ci sono vettori nuovi (prima a ogni avvio e caricamento)
+                CARTELLA_REGISTRO.mkdir(exist_ok=True)
+                provvisorio = self.file_cache.with_suffix('.tmp')   # file intero o niente: un'interruzione non lo corrompe
+                provvisorio.write_text(json.dumps(self.cache_emb), encoding='utf-8')
+                provvisorio.replace(self.file_cache)
         except Exception as e:
             self.embedding_ok = False
             print(f'  Embedding non disponibili ({e}). Uso solo la ricerca per parole chiave.')
@@ -401,7 +434,8 @@ class Indice:
             try:
                 profilo = embed([profilo_del_caso()])[0]
                 medi = {d: [sum(c) / len(v) for c in zip(*v)] for d, v in vettori.items()}
-                presi, somiglianza, dettaglio, mappa = raggruppa_pertinenti(medi, profilo)
+                cartelle = {d: str(Path(documenti[d]['percorso']).parent) for d in medi if d in documenti}
+                presi, somiglianza, dettaglio, mappa = raggruppa_pertinenti(medi, profilo, cartelle)
             except Exception as e:         # Ollama non risponde: meglio non escludere nulla
                 presi, somiglianza, dettaglio = set(documenti), {}, f'non calcolata ({e}): tutti pertinenti'
         with self.lock:
@@ -456,8 +490,8 @@ class Indice:
         pertinenti = [i for i, b in enumerate(brani) if not b['consultazione']]
         # al massimo MAX_BRANI_PER_DOC brani per documento: i documenti del caso sono brevi (un brano), un documento
         # lungo o un intruso del clustering non deve occupare il posto degli altri
-        pertinenti_limitati = limita_per_documento(pertinenti, brani)
-        tutti_pertinenti = bool(pertinenti) and len(pertinenti) < n and tutto_nel_contesto([brani[i] for i in pertinenti_limitati])
+        pertinenti_accorpati = accorpa_copie(limita_per_documento(pertinenti, brani), brani)
+        tutti_pertinenti = bool(pertinenti) and len(pertinenti) < n and tutto_nel_contesto([brani[i] for i, _ in pertinenti_accorpati])
 
         semantica, migliore = [], None
         if self.embedding_ok:
@@ -504,11 +538,13 @@ class Indice:
         # se ci stanno tutti, li riceve tutti (nell'ordine dei documenti); altrimenti i migliori tra i pertinenti
         insieme = set(pertinenti)
         if tutti_pertinenti:
-            scelti = pertinenti_limitati
+            accorpati = pertinenti_accorpati
         else:
             rrf_p = fondi([[i for i in c if i in insieme] for c in (bm25, semantica, hyde)])
             migliori = sorted(rrf_p, key=rrf_p.get, reverse=True) or pertinenti
-            scelti = limita_per_documento(migliori, brani)[:TOP_K]
+            # copie identiche una volta sola: dieci copie di un bollettino non tolgono posto agli altri documenti
+            accorpati = accorpa_copie(limita_per_documento(migliori, brani), brani)[:TOP_K]
+        scelti, copie_di = [i for i, _ in accorpati], dict(accorpati)
         # se la domanda punta soprattutto a documenti NON pertinenti (es. "cosa dice il file sulle anatre?"),
         # il modello ne riceve anche il contenuto, segnato come non pertinente: può parlarne e citarli,
         # ma non diventano mai indizi, eventi o luoghi (vedi del_caso in server.py e le istruzioni)
@@ -543,7 +579,7 @@ class Indice:
                          ('usato, non pertinente' if (brani[i]['doc'], brani[i]['n']) in fuori_set else
                           ('non pertinente' if brani[i]['consultazione'] else 'fuori dai primi'))}
                         for i in classifica[:25]]})
-        return fuori + [fonte_da_brano(brani[i], rrf.get(i, 0)) for i in scelti]
+        return fuori + [fonte_da_brano(brani[i], rrf.get(i, 0), copie=copie_di.get(i)) for i in scelti]
 
     def persone_in(self, testo):
         """Persone citate in un testo, solo se compaiono anche nei documenti (nomi inventati o etichette no)."""
@@ -569,6 +605,29 @@ def tutto_nel_contesto(brani):
     return len(brani) <= SOGLIA_BRANI and sum(len(b['testo']) for b in brani) <= SOGLIA_CARATTERI
 
 
+def firma_contenuto(testo):
+    """Il contenuto di un brano senza l'intestazione (titolo, ora, numero del documento): due copie inoltrate dello
+    stesso bollettino hanno intestazioni diverse ma la stessa firma."""
+    paragrafi = [p for p in re.split(r'\n\s*\n', testo.strip()) if p.strip()]
+    corpo = '\n'.join(paragrafi[1:]) if len(paragrafi) >= 2 and len(paragrafi[0]) <= 250 else testo
+    return re.sub(r'\W+', ' ', corpo.lower()).strip()
+
+
+def accorpa_copie(indici, brani):
+    """[(indice, [documenti con lo stesso testo])], nello stesso ordine: le copie identiche passano una volta sola,
+    con l'elenco dei documenti che le ripetono (copie inoltrate, non conferme indipendenti)."""
+    visti, tenuti = {}, []
+    for i in indici:
+        firma = firma_contenuto(brani[i]['testo'])
+        if len(firma) > 40 and firma in visti:
+            visti[firma][1].append(brani[i]['doc'])
+            continue
+        voce = (i, [])
+        tenuti.append(voce)
+        visti[firma] = voce
+    return tenuti
+
+
 def limita_per_documento(indici, brani, massimo=None):
     """Gli indici dei brani nello stesso ordine, ma al massimo `massimo` (MAX_BRANI_PER_DOC) per documento."""
     massimo = massimo or cfg.MAX_BRANI_PER_DOC
@@ -580,11 +639,13 @@ def limita_per_documento(indici, brani, massimo=None):
     return tenuti
 
 
-def fonte_da_brano(b, punteggio=0, solo_titolo=None):
+def fonte_da_brano(b, punteggio=0, solo_titolo=None, copie=None):
     """Un brano scelto, nel formato delle fonti passate al modello e mostrate nella pagina.
-    solo_titolo: documento non pertinente di cui si passa solo il titolo, senza contenuto."""
+    solo_titolo: documento non pertinente di cui si passa solo il titolo, senza contenuto.
+    copie: altri documenti con lo stesso identico testo (accorpati in questo)."""
     fonte = {'doc': b['doc'], 'id_interno': b['id_interno'], 'consultazione': b['consultazione'], 'sospetto': b.get('sospetto'),
-             'giorno': b.get('giorno'), 'n': b['n'], 'testo': b['testo'], 'punteggio': round(punteggio, 4)}
+             'giorno': b.get('giorno'), 'n': b['n'], 'testo': b['testo'], 'punteggio': round(punteggio, 4),
+             'copie': copie or []}
     if solo_titolo is not None:
         fonte.update(testo='', solo_titolo=solo_titolo or b['doc'])
     return fonte
@@ -603,6 +664,9 @@ def contesto_da_fonti(fonti):
 
     def nota(f):
         giorno = f'(giorno {f["giorno"]}) ' if f.get('giorno') else ''
+        if f.get('copie'):
+            giorno += (f'(questo testo compare identico in altri {len(f["copie"])} documenti: {", ".join(f["copie"][:12])}'
+                       f'{"…" if len(f["copie"]) > 12 else ""} — copie inoltrate, NON conferme indipendenti) ')
         if f.get('solo_titolo') is not None:
             return f'{giorno}{NOTA_CONSULTAZIONE} titolo: «{f["solo_titolo"]}». Contenuto non disponibile.'
         if f.get('sospetto'):
