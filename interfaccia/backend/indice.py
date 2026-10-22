@@ -16,7 +16,7 @@ from config import (CARTELLA_CARICATI, CARTELLA_REGISTRO, ESTENSIONI_MARKUP, EST
                     SOGLIA_BRANI, SOGLIA_CARATTERI, TOP_K)
 from modello import embed
 from pertinenza import pertinenti as raggruppa_pertinenti
-from testo import estrai_nomi, frasi, ms, parole
+from testo import STOP, estrai_nomi, frasi, ms, parole, senza_accenti
 from scenario import RE_GIORNO_CARTELLA, RE_GIORNO_TESTO, RE_GIORNO_ID
 
 try:
@@ -303,7 +303,7 @@ class Indice:
             for n, t in enumerate(pezzi):
                 p = parole(f'{titolo} {t}')
                 brani.append({'doc': d['id'], 'id_interno': d.get('id_interno'), 'consultazione': d.get('consultazione', False),
-                              'sospetto': d.get('sospetto'), 'giorno': d.get('giorno'), 'n': n, 'testo': t, 'parole': p, 'freq': Counter(p), 'emb': None})
+                              'sospetto': d.get('sospetto'), 'giorno': d.get('giorno'), 'n': n, 'testo': t, 'parole': p, 'freq': Counter(p), 'frasi': coppie_di(f'{titolo} {t}'), 'emb': None})
         # BM25
         self.df = Counter()
         for b in brani:
@@ -499,14 +499,21 @@ class Indice:
         """(in quanti brani del caso compare ogni parola, quanti sono i brani del caso). Gli identificatori si cercano tra i soli brani del caso:
         contando anche i documenti estranei, una parola comune nel caso («affidabile») compare per caso in pochi brani estranei e sembra rara."""
         if self.df_caso is None or self.df_caso[2] != len(brani):
-            df = Counter()
+            df, df_frasi = Counter(), Counter()
             n_caso = 0
             for b in brani:
                 if not b['consultazione']:
                     df.update(set(b['parole']))
+                    df_frasi.update(frasi_di(b))
                     n_caso += 1
-            self.df_caso = (df, n_caso, len(brani))
+            self.df_caso = (df, n_caso, len(brani), df_frasi)
         return self.df_caso[0], self.df_caso[1]
+
+    def frequenze_frasi_del_caso(self, brani):
+        """In quanti brani del caso compare ogni coppia di parole adiacenti (vedi `coppie_di`): «supporto vuoto» può stare in un brano solo anche se
+        «supporto» e «vuoto», da soli, sono in decine."""
+        self.frequenze_del_caso(brani)
+        return self.df_caso[3]
 
     # -- ricerca
     def cerca(self, domanda, strumenti, ipotesi=None, traccia=None, riscritta=None):
@@ -572,12 +579,18 @@ class Indice:
         df_caso, n_caso = self.frequenze_del_caso(brani)
         soglia_df = max(cfg.IDENT_DF_MIN, cfg.IDENT_DF_FRAZIONE * n_caso)
         rari = sorted({w for w in q if 0 < df_caso.get(w, 0) <= soglia_df})
+        # Frasi rare: coppie di parole adiacenti della domanda che compaiono in pochissimi brani del caso, anche se le due parole sono comuni.
+        frasi_rare = []
+        if cfg.IDENT_FRASI:
+            df_frasi = self.frequenze_frasi_del_caso(brani)
+            frasi_rare = sorted({f for f in coppie_di(domanda) if 0 < df_frasi.get(f, 0) <= cfg.IDENT_FRASE_DF_MAX})
         identificatori = []
-        if rari:
-            trovati = [(sum(w in brani[i]['freq'] for w in rari), s, i) for s, i in punteggi if s > 0 and not brani[i]['consultazione']]
+        if rari or frasi_rare:
+            trovati = [(sum(w in brani[i]['freq'] for w in rari) + sum(f in frasi_di(brani[i]) for f in frasi_rare), s, i)
+                       for s, i in punteggi if s > 0 and not brani[i]['consultazione']]
             identificatori = [i for k, s, i in sorted((x for x in trovati if x[0]), reverse=True)[:cfg.IDENT_MAX_BRANI]]
             strumenti.append({'nome': 'cerca_identificatori', 'ms': ms(t),
-                              'dettaglio': f'{len(identificatori)} brani con {", ".join(rari)}'})
+                              'dettaglio': f'{len(identificatori)} brani con {", ".join(rari + [f"«{a} {b}»" for a, b in frasi_rare])}'})
 
         # HyDE: solo se la domanda da sola trova poco. È una classifica IN PIÙ: un'ipotesi sbagliata
         # non può togliere i brani trovati con la domanda vera.
@@ -586,7 +599,7 @@ class Indice:
             t = time.perf_counter()
             if tutti_pertinenti:
                 strumenti.append({'nome': 'cerca_hyde', 'ms': 0, 'dettaglio': 'non serve: il modello riceve tutti i documenti pertinenti'})
-            elif identificatori and cfg.HYDE_SALTA_CON_IDENTIFICATORI:
+            elif rari and identificatori and cfg.HYDE_SALTA_CON_IDENTIFICATORI:      # solo le parole rare saltano HyDE, non le frasi rare
                 strumenti.append({'nome': 'cerca_hyde', 'ms': 0, 'dettaglio': f'non serve: la domanda ha già {len(identificatori)} brani con {", ".join(rari)}'})
             elif migliore >= cfg.HYDE_SOGLIA:
                 strumenti.append({'nome': 'cerca_hyde', 'ms': 0, 'dettaglio': f'non serve: similarità {migliore:.2f} ≥ {cfg.HYDE_SOGLIA:.2f}'})
@@ -671,7 +684,7 @@ class Indice:
                 'bm25': [voce(i, punti_bm25[i]) for i in bm25[:15]],
                 'semantica': [voce(i, s) for i, s in zip(semantica[:15], punti_sem[:15])],
                 'hyde': [voce(i, s) for i, s in zip(hyde[:15], punti_h[:15])] if hyde else [],
-                'identificatori': [voce(i, punti_bm25[i]) for i in identificatori[:15]], 'rari': rari,
+                'identificatori': [voce(i, punti_bm25[i]) for i in identificatori[:15]], 'rari': rari + [f'{a} {b}' for a, b in frasi_rare],
                 'rrf': [{**voce(i, rrf[i]), 'esito': 'scelto' if i in scelti_set else
                          ('usato, non pertinente' if (brani[i]['doc'], brani[i]['n']) in fuori_set else
                           ('non pertinente' if brani[i]['consultazione'] else 'fuori dai primi'))}
@@ -701,6 +714,22 @@ class Indice:
             CARTELLA_REGISTRO.mkdir(exist_ok=True)
             self.file_esclusi.write_text('\n'.join(sorted(self.esclusi)), encoding='utf-8')
             self._indicizza_persone()
+
+
+STOP_SENZA_ACCENTI = frozenset(senza_accenti(w) for w in STOP)
+
+
+def coppie_di(testo):
+    """Le coppie di parole adiacenti nel testo, come sono scritte (minuscole, senza accenti, SENZA stemming): «supporto vuoto» sì; le coppie con una
+    parola comune («il supporto») no. Senza stemming «supporto vuoto» e «supporti vuoti» sono frasi diverse, e la prima può stare in un brano solo."""
+    t = [senza_accenti(w) for w in re.findall(r"[\wÀ-ÿ]+", testo.lower())]
+    return frozenset((a, b) for a, b in zip(t, t[1:])
+                     if len(a) > 1 and len(b) > 1 and a not in STOP_SENZA_ACCENTI and b not in STOP_SENZA_ACCENTI)
+
+
+def frasi_di(brano):
+    """Le coppie di parole adiacenti del brano (vedi `coppie_di`)."""
+    return brano.get('frasi') or coppie_di(brano['testo'])
 
 
 def tutto_nel_contesto(brani):

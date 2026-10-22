@@ -41,7 +41,9 @@ PESI_RRF = {'bm25': 1.0, 'semantica': 1.0, 'hyde': 1.0, 'identificatori': 2.0, '
 IDENT_DF_FRAZIONE = 0.002  # una parola è un identificatore se compare in meno di questa frazione dei brani DEL CASO...
 IDENT_DF_MIN = 5           # ...ma sempre se compare al massimo in questi brani del caso. Il minimo conta quando i brani del caso sono pochi (centinaia):
                            # con 3 un numero di pratica citato in 4 bollettini smetteva di essere un identificatore (misurato: 2 domande su codici perse su 40)
-IDENT_MAX_BRANI = 30       # lunghezza massima della classifica degli identificatori
+IDENT_FRASI = True         # anche le coppie di parole adiacenti della domanda sono identificatori se compaiono in pochissimi brani del caso...
+IDENT_FRASE_DF_MAX = 3     # ...cioè al massimo in questi (una frase rara conta anche se le due parole, da sole, sono comuni). False = solo parole
+IDENT_MAX_BRANI = 30      # lunghezza massima della classifica degli identificatori
 # Diversità dei brani scelti (MMR): con centinaia di documenti costruiti sullo stesso modello le varianti di un bollettino riempiono tutti
 # i posti e il documento diverso (un collaudo, un esito) resta fuori. 1 = nessuna diversificazione (i TOP_K migliori, come prima).
 # Misurato con misure/misura_ricerca.py sulle domande su un segnale con centinaia di bollettini quasi identici: documento dell'esito tra le fonti 1/6 (1.0), 2/6 (0.7), 3/6 (0.5 e 0.3);
