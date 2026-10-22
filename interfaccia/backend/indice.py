@@ -16,7 +16,7 @@ from config import (CARTELLA_CARICATI, CARTELLA_REGISTRO, ESTENSIONI_MARKUP, EST
                     SOGLIA_BRANI, SOGLIA_CARATTERI, TOP_K)
 from modello import embed
 from pertinenza import pertinenti as raggruppa_pertinenti
-from testo import STOP, estrai_nomi, frasi, ms, parole, senza_accenti
+from testo import STOP, estrai_nomi, frasi, ms, parole, prova_persona, senza_accenti
 from scenario import RE_CODICE, RE_GIORNO_CARTELLA, RE_GIORNO_TESTO, RE_GIORNO_ID, RE_ID_DOCUMENTO
 
 try:
@@ -384,6 +384,11 @@ class Indice:
             if len(corrispondenti) == 1:
                 persone[corrispondenti[0]].extend(persone.pop(n))
                 alias[n] = corrispondenti[0]
+        # restano solo i nomi con almeno una prova di essere una persona: "Officina Sasso" o "Presso Ripetitore Rame" non ne hanno
+        persone = {n: v for n, v in persone.items() if any(prova_persona(x['frase'], n) for x in v)
+                   or any(prova_persona(x['frase'], a) for a, vero in alias.items() if vero == n for x in v)}
+        alias = {a: vero for a, vero in alias.items() if vero in persone}
+        multipli = [n for n in multipli if n in persone]
         for n in multipli:
             for t in n.split():
                 if sum(t in m.split() for m in multipli) == 1 and t not in persone:

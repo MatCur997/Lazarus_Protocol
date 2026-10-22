@@ -2,7 +2,7 @@
 import re
 import time
 import unicodedata
-from scenario import PREFISSI_LUOGO, PREFISSI_COSA, PREFISSI_SANTI
+from scenario import PREFISSI_LUOGO, PREFISSI_COSA, PREFISSI_SANTI, NOMI_PROPRI, RUOLI_PERSONA, VERBI_PERSONA
 
 # ------------------------------------------------------------------ utilità testo
 STOP = set('''a ad al alla alle allo ai agli all anche ancora che chi ci col come con contro da dal dalla dalle dallo dai
@@ -105,6 +105,27 @@ def estrai_nomi(testo):
                 continue
             trovati.append(' '.join(token))
     return trovati
+
+
+# "Riva, 34 anni", "Sara Riva — tesserino T447", "Serra (nato a ...)"
+RE_ANAGRAFICA = re.compile(r"^\s*[,(—–-]\s*(?:\d{1,3}\s+anni|nat[oa]\b|tesserino|matricola|badge)", re.I)
+RE_AUSILIARE = re.compile(r"^\s*,?\s*(?:ha|aveva|avrebbe|abbia|è|era|fu|sarebbe|viene|venne)?\s*([\wÀ-ÿ]+)")
+
+
+def prova_persona(frase, nome):
+    """Il nome, in questa frase, è di sicuro una persona? Nome di battesimo noto, titolo o ruolo davanti
+    ("il corriere Spina"), verbo da persona dopo ("Serra ha chiesto") o dati anagrafici ("Riva, 34 anni")."""
+    if senza_accenti(nome.split()[0].lower()) in NOMI_PROPRI:
+        return True
+    for m in re.finditer(rf'(?<![\w’]){re.escape(nome)}(?![\w’])', frase):
+        prima = re.findall(r"[\wÀ-ÿ]+", frase[:m.start()].lower())
+        if prima and (prima[-1] in TITOLI or prima[-1] in RUOLI_PERSONA):
+            return True
+        dopo = frase[m.end():]
+        verbo = RE_AUSILIARE.match(dopo)
+        if (verbo and verbo.group(1).lower() in VERBI_PERSONA) or RE_ANAGRAFICA.match(dopo):
+            return True
+    return False
 
 
 # ------------------------------------------------------- luoghi, indizi, eventi

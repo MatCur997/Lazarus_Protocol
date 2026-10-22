@@ -48,3 +48,33 @@ zaccaria ezechiele barnaba noah sasha nikita akira'''.split())
 FEMMINILI = set('''irene beatrice alice adele agnese rachele matilde clarice clotilde cloe chloe ester esther
 miriam ingrid carmen dolores mercedes ruth judith giuditta noemi naomi suzanne marion rosmary rosemary
 kim jennifer ellen helen eleonore ines inès abigail iris nives vivien lilian gwen daphne zoe zoé'''.split())
+
+# ---- Prove che un nome è di una persona (da testo.py): basta una prova in una frase qualunque dei documenti del caso.
+# Nomi di battesimo comuni: "Luca Serra" sì, "Officina Sasso" no (senza accenti, minuscoli).
+NOMI_PROPRI = set('''alessandro alessio alberto aldo alfredo amedeo angelo antonio arturo augusto bruno carlo cesare
+claudio corrado cristian cristiano daniele dario davide diego domenico edoardo emanuele emilio enrico enzo ettore
+fabio fabrizio federico felice filippo flavio francesco franco gabriele giacomo gianni gianluigi gianmarco giorgio
+giovanni giulio giuseppe gregorio guido ivan jacopo lorenzo luciano luigi manuel marcello marco mario massimo matteo
+maurizio michele mirko nicolo omar oscar paolo pasquale piero pietro raffaele renato riccardo roberto rocco romano
+rosario ruggero salvatore samuele sandro sergio silvio simone stefano tommaso ugo umberto valerio vincenzo vittorio
+adriana alessandra alessia alba angela anna antonella arianna barbara benedetta bianca camilla carla carlotta
+caterina cecilia chiara cinzia claudia cristina daniela debora diana elena elisa elisabetta emma erica eva federica
+francesca gabriella giada gianna ginevra giorgia giovanna giulia graziella ilaria laura letizia lidia linda lisa
+lucia luisa marta maria marina marisa martina michela milena monica nadia nicoletta ottavia paola patrizia
+rebecca rita roberta rosa rossana sabrina sara serena silvia simona sofia stefania susanna teresa valentina
+valeria vanessa veronica viola virginia vittoria
+john james robert michael william david richard thomas peter paul george anne mary elizabeth sarah emily'''.split()) \
+    | MASCHILI_IN_A | FEMMINILI
+# Ruoli e mestieri che, subito prima di un nome, dicono che è una persona: "il corriere Spina", "il tecnico Eco".
+# Non sono titoli: il nome resta solo quello che segue.
+RUOLI_PERSONA = set('''corriere corrieri operatore operatrice tecnico tecnica autista testimone custode guardia soldato
+medico paziente volontario volontaria responsabile addetto addetta impiegato impiegata ricercatore ricercatrice collega
+sopravvissuto sopravvissuta vittima giudice sindaco infermiere infermiera sergente caporale soldatessa ufficiale
+direttore direttrice capo caposquadra coordinatore coordinatrice portavoce informatore informatrice signor signora
+dottor dottore dottoressa agente ispettore ispettrice commissario capitano tenente maresciallo colonnello generale'''.split())
+# Verbi da persona subito dopo il nome: "Luca Serra ha chiesto", "Eco riferisce", "Riva è morta".
+VERBI_PERSONA = set('''dice disse dichiara dichiarò racconta raccontò riferisce riferì chiede chiese risponde rispose
+afferma affermò sostiene sostenne ammette ammise testimonia testimoniò ricorda ricordò spiega spiegò nega negò telefona
+telefonò scrive scrisse urla urlò grida gridò detto dichiarato raccontato riferito chiesto risposto affermato sostenuto
+ammesso testimoniato ricordato spiegato negato telefonato scritto urlato gridato morto morta ferito ferita nato nata
+scomparso scomparsa fuggito fuggita sparito sparita ucciso uccisa'''.split())
