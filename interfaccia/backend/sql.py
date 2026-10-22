@@ -20,6 +20,7 @@ from modello import apri_chat
 
 ESTENSIONI_DATABASE = {'.sqlite', '.sqlite3', '.db'}
 TENTATIVI = 3
+SQL_TOKEN = 1200        # con 600 le query con molte JOIN (tutte le regole del varco) restavano troncate: JSON non valido
 MAX_RIGHE = 50
 MAX_RIGHE_PASSO = 300   # un passo del piano deve vedere TUTTI i candidati (persone delle squadre: ~100 righe)
 MAX_RISPOSTA = 10        # righe di un elenco SENZA filtri: oltre è un'estrazione in blocco, non un'indagine
@@ -643,7 +644,7 @@ ISTRUZIONI_PASSO = (
 
 def _chiedi_sql(modello, messaggi):
     corpo = {'model': modello, 'stream': False, 'keep_alive': -1, 'think': False, 'format': 'json',
-             'options': {'temperature': 0, 'num_ctx': cfg.NUM_CTX, 'num_predict': 600}, 'messages': messaggi}
+             'options': {'temperature': 0, 'num_ctx': cfg.NUM_CTX, 'num_predict': SQL_TOKEN}, 'messages': messaggi}
     with apri_chat(corpo) as r:
         testo = json.loads(r.read())['message']['content'].strip()
     if testo.startswith('```'):
@@ -661,8 +662,11 @@ def _una_query(modello, messaggi, percorso, parametri, passo=False):
         try:
             query = _chiedi_sql(modello, messaggi)
         except (ValueError, json.JSONDecodeError) as e:
-            tentativi.append({'sql': '', 'errore': f'il modello non ha prodotto SQL valido ({e})'})
-            messaggi.append({'role': 'user', 'content': 'Rispondi solo con {"sql":"SELECT ..."}.'})
+            # l'errore vero va nell'esito: prima restava "nessuna query proposta" e non si capiva che la risposta era troncata
+            esito = {'errore': f'il modello non ha prodotto SQL valido ({e})'}
+            tentativi.append({'sql': '', 'errore': esito['errore']})
+            messaggi.append({'role': 'user', 'content': 'La risposta non era un JSON completo (probabilmente troppo lunga). '
+                                                        'Scrivi una query più breve, con solo le tabelle necessarie, e rispondi solo con {"sql":"SELECT ..."}.'})
             continue
         metodo = controlla_query(query, percorso)
         esito = {'errore': metodo} if metodo else interroga_database(query, percorso, MAX_RIGHE_PASSO if passo else MAX_RIGHE)

@@ -51,7 +51,7 @@
       "r15": "accessi passati ai terminali (k1 terminale r09, k2 persona r03, ts_a quando, v1 esito OK/NEGATO, v2 chiave usata): fonte storica, non prova"
     },
     "verdetto": {"tipo": "varco", "ruoli": ["SANITARIO", "SICUREZZA"]},
-    "risolutiva": "operator\\w* autorizzat|(persone|operatori|chi|quali|quale|due)\\b.{0,60}\\b(puo|possono|potrebbero|devono) (aprire|entrare|accedere)|(puo|possono|potrebbero) (aprire|entrare|accedere)\\b.{0,30}\\b(varco|archivio|cocito|v-46)|autorizzat\\w* (ad|a) (aprire|entrare|accedere)|accesso valido|apri\\w* il varco|terminale e (la )?chiave|soluzione|risolv|chiave (valida|corrente)|quale terminale|quali operatori|coppia",
+    "risolutiva": "operator\\w* autorizzat|(persone|operatori|chi|quali|quale|due)\\b.{0,60}\\b(puo|possono|potrebbero|devono) (aprire|entrare|accedere)|(puo|possono|potrebbero) (aprire|entrare|accedere)\\b.{0,30}\\b(varco|archivio|cocito|v-46)|\\b(si|come|per|posso|possiamo) (puo )?(accede\\w*|entra\\w*|apr\\w*)\\b.{0,40}\\b(varco|archiv\\w*|cocito|v-46)|autorizzat\\w* (ad|a) (aprire|entrare|accedere)|accesso valido|apri\\w* il varco|terminale e (la )?chiave|soluzione|risolv|chiave (valida|corrente)|quale terminale|quali operatori|coppia",
     "passi": [
       {"scopo": "Terminali del varco {varco}",
        "obiettivo": "Trova il varco con codice '{varco}' e TUTTI i terminali che lo controllano. Colonne: terminale (k0 del terminale), canale, stato. Nessun altro filtro: servono anche i terminali da escludere."},

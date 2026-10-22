@@ -341,9 +341,12 @@ class ToolSqlTest(unittest.TestCase):
         import missioni
         m = missioni.missione('archivio_recuperato.sqlite')
         for domanda in ("nell'archivio r03 sono presenti due persone che solo insieme possono accedere all'archivio cocito, dimmi questi nomi",
-                        "Chi può entrare nell'archivio Cocito?", 'Quali operatori autorizzati possono aprire il varco V-46?'):
+                        "Chi può entrare nell'archivio Cocito?", 'Quali operatori autorizzati possono aprire il varco V-46?',
+                        "come si accede all'archvio cocito",
+                        "Servono un SANITARIO e un addetto SICUREZZA, con identificativi diversi per accedere all'archvio cocito"):
             self.assertTrue(missioni.e_risolutiva(m, domanda), domanda)
-        self.assertFalse(missioni.e_risolutiva(m, 'quante righe ha la tabella r03?'))
+        for domanda in ('quante righe ha la tabella r03?', 'Quali terminali della tabella r09 controllano il varco V-46, con canale e stato?'):
+            self.assertFalse(missioni.e_risolutiva(m, domanda), domanda)
 
 
 class DatabaseDaCsvTest(unittest.TestCase):
