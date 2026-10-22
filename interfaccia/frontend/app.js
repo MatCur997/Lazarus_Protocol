@@ -215,24 +215,25 @@ function disegnaTempi(lista, filtro) {
 }
 
 function disegnaDocumenti(lista, filtro) {
+  // senza modalità debug l'elenco non dice quali file sono «sospetti» o «non pertinenti»: il detective lo scopre dalle risposte
   const pertinenti = stato.documenti.filter((d) => !d.consultazione).length;
-  $('#conta-sinistra').textContent = `${stato.documenti.length} file · ${pertinenti} pertinenti`;
-  $('#conta-sinistra').title = stato.server.pertinenza?.dettaglio || '';
-  // il filtro trova anche "sospetto", "non pertinente" e "pertinente"
-  const testoFiltro = (d) => `${d.nome} ${d.titolo} ${d.sospetto ? 'sospetto' : ''} ${d.consultazione ? 'non pertinente' : 'pertinente'} ${d.giorno ? `giorno ${d.giorno}` : ''}`.toLowerCase();
+  $('#conta-sinistra').textContent = DEBUG ? `${stato.documenti.length} file · ${pertinenti} pertinenti` : `${stato.documenti.length} file`;
+  $('#conta-sinistra').title = DEBUG ? stato.server.pertinenza?.dettaglio || '' : '';
+  // il filtro trova anche "sospetto", "non pertinente" e "pertinente" (solo in debug)
+  const testoFiltro = (d) => `${d.nome} ${d.titolo} ${DEBUG ? `${d.sospetto ? 'sospetto' : ''} ${d.consultazione ? 'non pertinente' : 'pertinente'}` : ''} ${d.giorno ? `giorno ${d.giorno}` : ''}`.toLowerCase();
   const voci = stato.documenti.filter((d) => !filtro || testoFiltro(d).includes(filtro));
   lista.innerHTML = voci.map((d) => `
     <article class="voce" data-id="${esc(d.id)}">
       <div class="testa"><span>${esc(d.nome)}</span><span>
-        ${d.sospetto ? `<span class="etichetta sospetto" title="${esc(d.sospetto)}${d.sospetto_manuale === true ? ' (segnato a mano)' : ''}">⚠ sospetto</span> ` : ''}
-        ${d.consultazione ? `<span class="etichetta" title="Escluso dal clustering di pertinenza${d.pertinenza != null ? ` (somiglianza al caso ${d.pertinenza})` : ''}: il modello ne parla solo se glielo chiedi, e non diventa mai un indizio">non pertinente</span> ` : ''}
+        ${DEBUG && d.sospetto ? `<span class="etichetta sospetto" title="${esc(d.sospetto)}${d.sospetto_manuale === true ? ' (segnato a mano)' : ''}">⚠ sospetto</span> ` : ''}
+        ${DEBUG && d.consultazione ? `<span class="etichetta" title="Escluso dal clustering di pertinenza${d.pertinenza != null ? ` (somiglianza al caso ${d.pertinenza})` : ''}: il modello ne parla solo se glielo chiedi, e non diventa mai un indizio">non pertinente</span> ` : ''}
         ${d.giorno ? `<span class="etichetta" title="Giorno dell'indagine in cui è arrivato il documento">giorno ${d.giorno}</span> ` : ''}
         <span class="etichetta ${d.origine === 'caricato' ? 'bordeaux' : ''}">${d.origine}</span></span></div>
       <div class="domanda" data-documento>${esc(d.titolo)}</div>
       <div class="piede"><span class="etichetta">${d.caratteri} caratteri</span>
-        <span><button class="btn-piccolo grigio" data-sospetto="${d.sospetto ? 'false' : 'true'}"
+        <span>${DEBUG ? `<button class="btn-piccolo grigio" data-sospetto="${d.sospetto ? 'false' : 'true'}"
           title="${d.sospetto ? 'Non è un documento manipolatorio: togli il segnale' : 'Segna come documento manipolatorio'}">${d.sospetto ? 'Non sospetto' : 'Segna sospetto'}</button>
-        ${d.sospetto_manuale != null ? '<button class="btn-piccolo grigio" data-sospetto="auto" title="Torna al riconoscimento automatico">Automatico</button> ' : ''}
+        ${d.sospetto_manuale != null ? '<button class="btn-piccolo grigio" data-sospetto="auto" title="Torna al riconoscimento automatico">Automatico</button> ' : ''}` : ''}
         ${d.origine === 'caricato' ? `<button class="btn-piccolo grigio" data-rimuovi>${ICONE.x}Rimuovi</button> ` : ''}<button class="btn-piccolo" data-documento>${ICONE.apri}Apri</button></span></div>
     </article>`).join('') || '<div class="vuoto">Nessun documento.</div>';
 }
@@ -396,7 +397,7 @@ function completaRisposta(el, voce) {
   el.querySelector('.extra').innerHTML = `
     ${voce.errore ? `<div class="errore">${esc(voce.errore)}</div>` : ''}
     ${voce.fonti.length ? `<div class="fila">Fonti: ${voce.fonti.map((f) => {
-      const sospetto = stato.documenti.find((d) => d.id === f.doc)?.sospetto;   // documenti che danno ordini all'assistente
+      const sospetto = DEBUG && stato.documenti.find((d) => d.id === f.doc)?.sospetto;   // documenti che danno ordini all'assistente (solo in debug)
       return `<span class="chip${sospetto ? ' sospetto' : ''}" data-doc="${esc(f.doc)}" title="${esc(sospetto ? `SOSPETTO: ${sospetto}\n\n${f.estratto}` : f.estratto)}">${sospetto ? '⚠ ' : ICONE.file}${esc(f.doc)}</span>`;
     }).join('')}</div>` : ''}
     ${voce.persone.length ? `<div class="fila">Persone: ${voce.persone.map((p) => `<span class="chip persona" data-persona="${esc(p)}">${esc(p)}</span>`).join('')}</div>` : ''}
