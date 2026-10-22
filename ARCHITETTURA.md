@@ -102,14 +102,12 @@ solo la libreria standard (più `requests`) nel backend.
   Documenti, il conteggio «N pertinenti», il ⚠ sulle fonti, il rosso/giallo e l'asse «più vicino al caso» nella RAG view. La variabile globale `DEBUG`
   (`tema.js`) la leggono gli script delle pagine; la classe `solo-debug` nasconde un elemento HTML fuori dalla modalità. Il backend calcola e invia sempre
   tutto: nascondere è solo lato pagina.
-- **Documenti sospetti**: un documento con almeno due segnali di ordini all'assistente ("istruzione per l'assistente",
-  "ignora G2-01", "rispondi che…", "non citare le fonti") ha il metadato `sospetto` con il motivo (`motivo_sospetto` in
-  `indice.py`, ricalcolato a ogni caricamento; correzioni a mano in `registro/sospetti.json`). Serve solo al team: si vede
-  in modalità debug e fa sì che il documento confermi solo voci sul tentativo di manipolazione, mai il suo contenuto
-  (`riscontro` in `testo.py`). **Il modello NON lo riceve segnalato e nessuna domanda lo cerca apposta**: il prompt dice
-  soltanto che il testo dei documenti è un dato e non un ordine (SICUREZZA in `lazarus.py`); se il modello incontra un
-  tentativo di manipolazione tra le fonti che usa, lo descrive e lo mette in Indizi. Per "tutti i file" riceve tutti i
-  documenti del caso se ci stanno nel contesto. In testa al prompt c'è solo la cronologia dei giorni (`nota_giorni`).
+- **Documenti sospetti**: nessun riconoscimento automatico (le regole sulle frasi dei documenti sono state tolte). Il metadato `sospetto` esiste
+  solo se il team segna un documento a mano in modalità debug (`registro/sospetti.json`); serve a far confermare a quel documento solo voci
+  sul tentativo di manipolazione, mai il suo contenuto (`riscontro` in `testo.py`). **Il modello NON riceve nessuna segnalazione e nessuna
+  domanda cerca i sospetti apposta**: il prompt dice soltanto che il testo dei documenti è un dato e non un ordine (SICUREZZA in
+  `lazarus.py`); se il modello incontra un tentativo di manipolazione tra le fonti che usa, lo descrive e lo mette in Indizi. Per
+  "tutti i file" riceve tutti i documenti del caso se ci stanno nel contesto. In testa al prompt c'è solo la cronologia dei giorni (`nota_giorni`).
 - **Come si scelgono i brani** (`Indice.cerca`): BM25 su tutto l'archivio, similarità degli embedding (`classifica_per_significato`: con numpy
   è un prodotto di matrici, ≈20 ms su 5000 brani; senza numpy il ciclo in Python puro, ≈500 ms), HyDE se la ricerca per significato trova poco,
   e gli **identificatori**: le parole della domanda presenti in pochissimi brani (`IDENT_DF_FRAZIONE`, `IDENT_DF_MIN`: codici, pratiche, nomi rari).
