@@ -206,6 +206,12 @@ def schema_testo(percorso, m=None):
         ipotesi = m.get('ipotesi', {}).get(t['nome'])
         righe.append(f'{t["nome"]} ({t["righe"]} righe){" — ipotesi: " + ipotesi if ipotesi else ""}')
         righe += [f'  {_riga_colonna(c)}' for c in t['colonne']]
+    # le uguaglianze da usare nelle JOIN, scritte per intero: con le sole frecce accanto alle colonne il modello collegava due chiavi
+    # esterne che puntano a tabelle diverse (e10.k1 = r08.k1)
+    relazioni = profila(percorso)['relazioni']
+    if relazioni:
+        righe += ['', 'COLLEGAMENTI (nelle JOIN usa esattamente queste uguaglianze):']
+        righe += [f'  {r["da"]}.{r["colonna"]} = {r["a"]}.{r["a_colonna"]}' for r in relazioni]
     regole = missioni.regole_testo(m)
     return '\n'.join(righe) + (f'\n\nREGOLE DELLA MISSIONE:\n{regole}' if regole else '')
 
@@ -395,12 +401,20 @@ def controlla_join(query, percorso):
             return t['nome']
         return col['fk']['tabella'] if col.get('fk') else None
 
+    def chiave_primaria(t):
+        return next((x['nome'] for x in tabelle[t]['colonne'] if x['pk']), 'k0')
+
     for a1, c1, a2, c2 in RE_UGUALE.findall(query or ''):
         b1, b2 = bersaglio(a1, c1), bersaglio(a2, c2)
         if b1 and b2 and b1 != b2:
             t1, t2 = alias[a1], alias[a2]
-            return (f'JOIN incoerente: {t1}.{c1} si riferisce a {b1}, {t2}.{c2} si riferisce a {b2}. Collega una chiave '
-                    f'esterna con la chiave primaria (k0) della tabella a cui punta, secondo i collegamenti dello schema.')
+            # la correzione precisa: con il messaggio generico gemma ripeteva la stessa JOIN in tutti e tre i tentativi
+            # (e10.k1 = r08.k1 invece di e10.k1 = r08.k0: la revoca punta al permesso, non alla sua squadra)
+            correzioni = ([f'{a2}.{c2} = {a1}.{chiave_primaria(t1)}'] if b2 == t1 else []) \
+                + ([f'{a1}.{c1} = {a2}.{chiave_primaria(t2)}'] if b1 == t2 else [])
+            return (f'JOIN incoerente: {a1}.{c1} = {a2}.{c2} collega {t1}.{c1}, che punta a {b1}, con {t2}.{c2}, che punta a {b2}. '
+                    + (f'Scrivi invece: {" oppure ".join(correzioni)}.' if correzioni else
+                       'Collega una chiave esterna con la chiave primaria della tabella a cui punta (vedi COLLEGAMENTI nello schema).'))
     return None
 
 

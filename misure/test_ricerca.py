@@ -421,6 +421,21 @@ class AgenteSqlTest(unittest.TestCase):
         self.assertEqual(r['righe'], [])
         self.assertIn('PX9999', r['nota'])
 
+    def test_join_sbagliata_con_la_correzione_precisa(self):
+        con = sqlite3.connect(self.db)
+        con.execute('CREATE TABLE squadre (k0 INTEGER PRIMARY KEY, v1 TEXT)')
+        con.execute('CREATE TABLE permessi (k0 INTEGER PRIMARY KEY, k1 INTEGER, v1 TEXT)')
+        con.execute('CREATE TABLE revoche (k0 INTEGER PRIMARY KEY, k1 INTEGER, ts_a TEXT)')
+        con.executemany('INSERT INTO squadre VALUES (?, ?)', [(100, 'Nucleo 1'), (101, 'Nucleo 2')])
+        con.executemany('INSERT INTO permessi VALUES (?, ?, ?)', [(200, 100, 'SANITARIO'), (201, 101, 'SICUREZZA')])
+        con.execute("INSERT INTO revoche VALUES (300, 200, '2026-11-04 10:00')")
+        con.commit()
+        con.close()
+        errore = self.sql.controlla_query('SELECT * FROM permessi JOIN revoche ON permessi.k1 = revoche.k1', self.db)
+        self.assertIn('Scrivi invece: revoche.k1 = permessi.k0', errore)       # la revoca punta al permesso, non alla squadra
+        self.assertIsNone(self.sql.controlla_query('SELECT * FROM permessi JOIN revoche ON revoche.k1 = permessi.k0', self.db))
+        self.assertIn('revoche.k1 = permessi.k0', self.sql.schema_testo(self.db))
+
     def test_scrittura_rifiutata_con_il_motivo(self):
         r = self.sql.interroga_database("DELETE FROM accessi", self.db)
         self.assertIn('solo letture', r['errore'])
