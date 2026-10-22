@@ -30,7 +30,7 @@ PERTINENZA_IN_PARALLELO = True
 # Dopo le regole e prima del modello: se la domanda assomiglia ai brani del caso almeno quanto questa soglia (coseno, come HYDE_SOGLIA) è sul
 # caso e il modello non viene chiamato (~1,7 s). Sotto soglia decide il modello come prima. Soglia non ancora tarata sulle domande reali:
 # alzala se passano come "sul caso" domande estranee. False = sempre il modello.
-PERTINENZA_CON_VETTORI = True
+PERTINENZA_CON_VETTORI = False   # spento: misurato con Ollama, la somiglianza domanda-brani è 0,48-0,62 anche per domande estranee (0,58), la soglia non separa
 PERTINENZA_SOGLIA_VETTORI = 0.60
 HYDE_SALTA_CON_IDENTIFICATORI = True   # la domanda ha parole rare (codici, nomi) che trovano già dei brani: HyDE (~2 s) non si fa. False = come prima
 # Fusione delle classifiche (RRF pesata). Gli identificatori sono le parole della domanda che compaiono in pochissimi brani
@@ -67,7 +67,7 @@ ISTRUZIONI_HYDE = (
     '(verbale, registro, appunto, rapporto) e che risponde alla domanda. Usa il lessico tipico di quei documenti. '
     'È solo un esempio per cercare documenti simili: non serve che sia vero, non aggiungere commenti né premesse.'
 )
-NUM_CTX = 8192
+NUM_CTX = 12288            # come lazarus.py (riserva se app_lazarus non si collega)
 NUM_PREDICT = 350
 NUM_PREDICT_CONVERSAZIONE = 80
 TEMPERATURA = 0.5
@@ -77,7 +77,7 @@ MAX_UPLOAD = 50 * 1024 * 1024
 # Se arriva una nuova domanda l'estrazione si interrompe e si usano le regole. False = solo regole.
 ESTRAZIONE_CON_MODELLO = False   # True = seconda chiamata al modello dopo ogni risposta: occupa Ollama e rallenta la domanda dopo
 SOGLIA_BRANI = 40                # fino a questi brani/caratteri si passano tutti i testi al modello (come lazarus.py)
-SOGLIA_CARATTERI = 12000         # ~4000 token di documenti: con NUM_CTX 8192 restano istruzioni e risposta
+SOGLIA_CARATTERI = 12000         # ~4000 token di documenti: con NUM_CTX 12288 restano istruzioni e risposta
 MEMORIA_TURNI = 0                # domande precedenti rimandate al modello (0 = come lazarus.py: nessuna memoria)
 NOTA_GIORNI_MAX_ID = 15          # la cronologia nel prompt elenca gli ID di un giorno solo fino a questo numero (poi ne dice quanti sono)
 

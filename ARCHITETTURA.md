@@ -137,7 +137,7 @@ solo la libreria standard (più `requests`) nel backend.
   `test_ricerca.py` sono prove automatiche con embedding finti (nessun Ollama). `prima.json` è la misura prima di queste modifiche.
 - **Quanti documenti vede il modello**: se i documenti pertinenti stanno in `SOGLIA_CARATTERI` (12000) e `SOGLIA_BRANI`
   (40) li riceve tutti, altrimenti i `TOP_K` (10) brani migliori; mai più di `MAX_BRANI_PER_DOC` (2) brani per documento
-  (`limita_per_documento` in `indice.py`). Contesto del modello `NUM_CTX` = 8192 in `lazarus.py`: fisso, così Ollama
+  (`limita_per_documento` in `indice.py`). Contesto del modello `NUM_CTX` = 12288 in `lazarus.py`: fisso, così Ollama
   non ricarica il modello quando il prompt cresce (prima parola ~3 s con ~4500 token di prompt).
 - **Tempo dell'indagine**: ogni documento ha il metadato `giorno` (dal nome delle cartelle `…giorno_N…`, altrimenti
   "giorno operativo NN" nel testo o l'ID `G2-…`; `giorno_di` in `indice.py`). Le fonti arrivano al modello in ordine di

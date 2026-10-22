@@ -27,7 +27,8 @@ MODELLO = "gemma4:12b"
 OLLAMA = "http://127.0.0.1:11434"
 MAX_TOKEN = 600   # tetto, non obiettivo: con Eventi/Indizi/Ipotesi gemma4:12b arriva spesso a 400 token e a 400 la risposta si troncava a metà frase
 MAX_TOKEN_CONVERSAZIONE = 200  # messaggi non sul caso: conversazione libera, senza documenti
-NUM_CTX = 8192    # istruzioni + tutti i documenti pertinenti (~4-5000 token): un contesto fisso evita di ricaricare il modello
+NUM_CTX = 12288   # istruzioni + documenti pertinenti (~4-5500 token) + risposta. Un contesto fisso evita di ricaricare il modello: con 8192 i prompt
+                  # più lunghi (stima prudente in prepara_richiesta) facevano salire il contesto a 10240 e Ollama ricaricava gemma due volte (~4 s l'una)
 TEMPERATURA = 0.5  # 0 = sempre le stesse parole dei documenti; più alto = riformula di più
 # True = ogni richiesta parte con un codice casuale e Ollama non riusa nulla (sicuro, ma rielabora tutto il prompt: ~3 s prima della prima parola).
 # False = Ollama riusa la parte di prompt uguale alla richiesta precedente (istruzioni, e i documenti se sono gli stessi): più veloce, ma con
