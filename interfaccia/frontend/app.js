@@ -51,7 +51,8 @@ function disegnaStato() {
   const pill = (id, classe, testo) => { $(id).innerHTML = `<i class="punto ${classe}"></i>${esc(testo)}`; };
   pill('#stato-ollama', s.demo ? 'attesa' : s.ollama ? 'ok' : 'ko', s.demo ? 'Modalità demo' : s.ollama ? 'Ollama attivo' : 'Ollama spento');
   pill('#stato-embedding', s.embedding ? 'ok' : 'attesa', s.embedding ? `Ricerca ibrida · ${s.modello_embedding}` : 'Solo parole chiave');
-  $('#stato-documenti').lastChild.textContent = `${s.documenti} documenti · ${s.brani} brani`;
+  $('#stato-documenti').lastChild.textContent = `${s.documenti} documenti · ${s.brani} brani`
+    + (s.database?.length ? ` · database ${s.database.join(', ')}` : '');
   const ok = stato.storico.filter((v) => !v.errore);
   $('#stato-media').lastChild.textContent = `media ${sec(media(ok.map((v) => v.tempi.totale_ms)))} · prima parola ${sec(media(ok.map((v) => v.tempi.prima_parola_ms).filter((x) => x != null)))}`;
   const pronto = s.demo || s.ollama;
@@ -400,6 +401,7 @@ function completaRisposta(el, voce) {
       return `<span class="chip${sospetto ? ' sospetto' : ''}" data-doc="${esc(f.doc)}" title="${esc(sospetto ? `SOSPETTO: ${sospetto}\n\n${f.estratto}` : f.estratto)}">${sospetto ? '⚠ ' : ICONE.file}${esc(f.doc)}</span>`;
     }).join('')}</div>` : ''}
     ${voce.persone.length ? `<div class="fila">Persone: ${voce.persone.map((p) => `<span class="chip persona" data-persona="${esc(p)}">${esc(p)}</span>`).join('')}</div>` : ''}
+    ${voce.sql ? bloccoSql(voce.sql) : ''}
     <div class="tempi-msg">prima parola <b>${sec(t.prima_parola_ms)}</b> · totale <b>${sec(t.totale_ms)}</b> · ricerca ${t.ricerca_ms} ms${t.tok_s ? ` · ${t.tok_s} tok/s` : ''} · ${esc(voce.modello)}</div>
     <details class="dett-strumenti"><summary>${voce.strumenti.length} strumenti usati</summary>
       ${voce.strumenti.map((s, i) => `<div class="passo"><span class="n">${i + 1}</span><span><code>${esc(s.nome)}</code> — ${esc(s.dettaglio)}</span><span class="etichetta">${s.ms} ms</span></div>`).join('')}
@@ -497,7 +499,28 @@ $('#cartella').addEventListener('change', (e) => {
   e.target.value = '';
 });
 
-const ESTENSIONI_OK = ['.txt', '.md', '.csv', '.json', '.jsonl', '.log', '.xml', '.html', '.htm', '.docx', '.pdf', '.xlsx', '.zip'];
+// Riquadro del tool SQL sotto una risposta: una query, il piano a passi (una query per regola, con gli esiti) o la mappa
+function tabellaSql(colonne, righe, massimo = 20) {
+  if (!righe || !righe.length) return '';
+  const i = colonne.indexOf('esito');
+  return `<table class="md-tab"><thead><tr>${colonne.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${righe.slice(0, massimo).map((r) =>
+    `<tr${i >= 0 ? ` class="${String(r[i]).startsWith('VALIDO') ? 'sql-valida' : 'sql-esclusa'}"` : ''}>${r.map((v) => `<td>${esc(v ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+    + (righe.length > massimo ? `<div class="sql-altre">… altre ${righe.length - massimo} righe</div>` : '');
+}
+function bloccoSql(s) {
+  const n = (s.tentativi || []).length;
+  if (s.mappa) return `<details class="sql-blocco"><summary>Mappa del database ${esc(s.database)} · profilo di tutte le tabelle</summary><pre class="md-codice"><code>${esc(s.mappa)}</code></pre></details>`;
+  if (s.passi && s.passi.length) {
+    return `<details class="sql-blocco"${s.errore ? ' open' : ''}><summary>Piano SQL a ${s.passi.length} passi sul database ${esc(s.database)} · ${n} tentativi</summary>`
+      + (s.sintesi ? `<pre class="sql-sintesi">${esc(s.sintesi)}</pre>` : '')
+      + s.passi.map((p, k) => `<div class="sql-passo"><b>Passo ${k + 1} · ${esc(p.scopo)}</b>${p.errore ? ` <span class="errore">${esc(p.errore)}</span>` : ` · ${p.righe.length} righe`}
+          <pre class="md-codice"><code>${esc(p.sql || '(nessuna query valida)')}</code></pre>${tabellaSql(p.colonne, p.righe, 12)}</div>`).join('')
+      + '</details>';
+  }
+  return `<details class="sql-blocco"${s.errore ? ' open' : ''}><summary>Query SQL sul database ${esc(s.database)} · ${s.errore ? 'errore' : `${s.righe.length} righe`} · ${n} tentativi</summary><pre class="md-codice"><code>${esc(s.sql || '(nessuna query valida)')}</code></pre>${s.errore ? `<div class="errore">${esc(s.errore)}</div>` : ''}${tabellaSql(s.colonne, s.righe)}</details>`;
+}
+
+const ESTENSIONI_OK = ['.txt', '.md', '.csv', '.json', '.jsonl', '.log', '.xml', '.html', '.htm', '.docx', '.pdf', '.xlsx', '.zip', '.sqlite', '.sqlite3', '.db'];   // come ESTENSIONI_OK in config.py
 const estensioneOk = (nome) => ESTENSIONI_OK.some((e) => nome.toLowerCase().endsWith(e));
 
 // Cartelle: un chip per cartella, i file vanno su uno alla volta e l'indice si ricostruisce una volta sola alla fine.
@@ -511,7 +534,7 @@ async function caricaCartelle(voci) {
   for (const [nome, tutti] of gruppi) {
     const buoni = tutti.filter((v) => estensioneOk(v.file.name));
     const saltati = tutti.length - buoni.length;
-    if (!buoni.length) { sistema(`${nome}: nessun file leggibile (txt, md, csv, json, xml, html, docx, pdf, xlsx, zip).`); continue; }
+    if (!buoni.length) { sistema(`${nome}: nessun file leggibile (txt, md, csv, json, xml, html, docx, pdf, xlsx, zip, sqlite).`); continue; }
     const chip = document.createElement('span');
     chip.className = 'file-chip carico';
     $('#file-in-esame').appendChild(chip);

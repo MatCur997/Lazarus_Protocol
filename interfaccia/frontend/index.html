@@ -31,6 +31,8 @@
         <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="1"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Accesso Segreto</a>
       <a class="ragview-btn" href="ragview.html" title="RAG view: quali documenti sono pertinenti e come il modello sceglie le fonti di ogni risposta">
         <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="9" cy="18" r="2.5"/><path d="M8 7h8M7 8l2 8M16.5 9l-6 7"/></svg>RAG view</a>
+      <a class="ragview-btn" href="schema.html" title="Schema logico interattivo: il percorso di una domanda e dei documenti caricati dentro il modello">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="5"/><rect x="14" y="3" width="7" height="5"/><rect x="8.5" y="16" width="7" height="5"/><path d="M6.5 8v4h11V8M12 12v4"/></svg>Schema logico</a>
     </div>
   </div>
   <nav class="barra-stato">
@@ -78,9 +80,9 @@
     <div class="input-chat">
       <div class="file-in-esame" id="file-in-esame"></div>
       <div class="riga-input">
-        <button class="btn-tondo piu" id="piu" title="Carica file da esaminare (txt, md, csv, json, xml, html, docx, pdf, xlsx, zip)">
+        <button class="btn-tondo piu" id="piu" title="Carica file da esaminare (txt, md, csv, json, xml, html, docx, pdf, xlsx, zip, sqlite)">
           <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
-        <input type="file" id="file" multiple hidden accept=".txt,.md,.csv,.json,.jsonl,.log,.xml,.html,.htm,.docx,.pdf,.xlsx,.zip">
+        <input type="file" id="file" multiple hidden accept=".txt,.md,.csv,.json,.jsonl,.log,.xml,.html,.htm,.docx,.pdf,.xlsx,.zip,.sqlite,.sqlite3,.db">
         <button class="btn-tondo piu" id="piu-cartella" title="Carica una cartella intera (anche con sottocartelle)">
           <svg viewBox="0 0 24 24"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg></button>
         <input type="file" id="cartella" hidden webkitdirectory multiple>
