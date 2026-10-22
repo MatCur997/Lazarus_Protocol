@@ -1,0 +1,66 @@
+{
+  "_nota": "Una voce per database (nome del file). parametri: valori che la centrale può aggiornare (si salvano in registro/missioni_parametri.json, questo file resta com'è). regole: testo per il modello, {nome} viene sostituito con il parametro. ipotesi: significato ipotizzato delle tabelle (la mappa della squadra: le prove le calcola il profilo del database). passi: piano a più query per le domande risolutive. verdetto: controllo calcolato dal codice sulle righe restituite.",
+
+  "accessi_g_4.sqlite": {
+    "titolo": "Giorno 4 · accesso al deposito (accessi_g_4)",
+    "parole": ["deposito", "lume", "contenitore", "rv628", "bastione", "pratica", "settore", "tracciamento", "tracciare"],
+    "parametri": {"istante": "2031-10-12 06:00"},
+    "regole": [
+      "Il codice è testo: conserva eventuali zeri iniziali.",
+      "Data della missione: {istante}. Un permesso è valido solo se stato è 'attivo' e valido_fino è almeno '{istante}' (le date sono testi AAAA-MM-GG hh:mm: confrontali come testi).",
+      "Persona, deposito, settore e pratica devono corrispondere tutti. I dati richiesti per la ricerca arrivano dai dossier.",
+      "Se la domanda chiede la validità a un'altra data o ora, confronta valido_fino con quella invece che con la data della missione."
+    ],
+    "verdetto": {"tipo": "stato_scadenza", "stato": "stato", "attivo": "attivo", "fine": "valido_fino", "codice": "codice"}
+  },
+
+  "archivio_recuperato.sqlite": {
+    "titolo": "Giorno 4 · Operazione Varco (archivio recuperato)",
+    "parole": ["varco", "cocito", "v-46", "terminale", "terminali", "chiave", "sanitario", "sicurezza", "operatori autorizzati",
+               "finestra", "finestre", "archivio recuperato", "abilitazion", "sospension", "mappa delle tabelle", "dizionario"],
+    "parametri": {"istante": "2026-11-04 12:00", "varco": "V-46", "archivio": "Archivio Cocito", "canale_veicolo": null},
+    "regole": [
+      "Istante richiesto: {istante}. Varco richiesto: {varco} ({archivio}). Canale del lettore del veicolo: {canale_veicolo}.",
+      "Due persone: servono un SANITARIO e un addetto SICUREZZA con identificativi diversi. La stessa persona con due abilitazioni non basta.",
+      "Stessa squadra: entrambe devono appartenere alla stessa squadra nell'istante richiesto. Una vecchia appartenenza non vale.",
+      "Abilitazioni: ogni persona deve avere un'abilitazione valida per il ruolo svolto. Rinnovi o registrazioni sovrapposte non sono persone diverse.",
+      "Sospensioni: nessuna delle due persone deve essere sospesa nell'istante richiesto. Una sospensione futura non è ancora attiva.",
+      "Permessi: la squadra deve avere, per il varco richiesto, un permesso ATTIVO e temporalmente valido per ciascuno dei due ruoli.",
+      "Revoche: il permesso è escluso se una revoca è già efficace. Decide l'istante di effetto, non la semplice presenza della revoca.",
+      "Terminale: deve controllare il varco richiesto, essere OPERATIVO e usare il canale compatibile con il lettore del veicolo.",
+      "Finestra e chiave: serve almeno una finestra di apertura valida e una versione della chiave valida per quel terminale. Non scegliere il codice ordinando gli identificativi.",
+      "Date e NULL: formato AAAA-MM-GG HH:MM. Ogni intervallo include l'inizio ed esclude la fine: valido se inizio <= '{istante}' AND (fine IS NULL OR '{istante}' < fine). Una fine NULL significa nessuna scadenza. Le revoche hanno effetto dall'istante indicato: efficace se effetto <= '{istante}'.",
+      "Fonti storiche: le copie dei registri e gli accessi passati aiutano a capire i dati ma NON provano autorizzazioni correnti.",
+      "I vincoli di relazione non sono stati recuperati: i collegamenti sono quelli dedotti dal profilo (percentuale di valori che trovano corrispondenza).",
+      "Codici come testo. Non cambiare dati o permessi per rendere valida una soluzione. Se non esiste un accesso valido, dichiaralo. Se restano più possibilità o manca un dato, spiega cosa manca e chiedilo alla centrale: non scegliere una riga solo perché compare per prima."
+    ],
+    "ipotesi": {
+      "r02": "archivi (v1 nome, v2 sigla)",
+      "r07": "varchi (k1 archivio r02, v1 codice del varco)",
+      "r09": "terminali (k1 varco r07, v1 canale, v2 stato OPERATIVO/FUORI_SERVIZIO)",
+      "m05": "finestre di apertura dei terminali (k1 terminale r09, ts_a inizio, ts_b fine)",
+      "r13": "versioni della chiave dei terminali (k1 terminale r09, v1 codice chiave, ts_a inizio, ts_b fine)",
+      "r03": "persone (v1 nome, v2 badge PX)",
+      "r06": "abilitazioni delle persone (k1 persona r03, v1 ruolo SANITARIO/SICUREZZA, ts_a inizio, ts_b fine)",
+      "e04": "sospensioni delle persone (k1 persona r03, ts_a inizio, ts_b fine, v1 motivo)",
+      "r11": "squadre (v1 nome)",
+      "m12": "appartenenza persona-squadra (k1 persona r03, k2 squadra r11, ts_a inizio, ts_b fine)",
+      "r08": "permessi di squadra per varco e ruolo (k1 squadra r11, k2 varco r07, v1 ruolo, ts_a inizio, ts_b fine, v2 stato ATTIVO/BLOCCATO)",
+      "e10": "revoche dei permessi (k1 permesso r08, ts_a istante di effetto, v1 motivo)",
+      "r14": "copie storiche dei permessi (REPLICA_TURNO_PRECEDENTE): fonte storica, non prova",
+      "r15": "accessi passati ai terminali (k1 terminale r09, k2 persona r03, ts_a quando, v1 esito OK/NEGATO, v2 chiave usata): fonte storica, non prova"
+    },
+    "verdetto": {"tipo": "varco", "ruoli": ["SANITARIO", "SICUREZZA"]},
+    "risolutiva": "operator\\w* autorizzat|chi (puo|possono) (aprire|entrare|accedere)|accesso valido|apri\\w* il varco|terminale e (la )?chiave|soluzione|risolv|chiave (valida|corrente)|quale terminale|quali operatori|coppia",
+    "passi": [
+      {"scopo": "Terminali del varco {varco}",
+       "obiettivo": "Trova il varco con codice '{varco}' e TUTTI i terminali che lo controllano. Colonne: terminale (k0 del terminale), canale, stato. Nessun altro filtro: servono anche i terminali da escludere."},
+      {"scopo": "Permessi delle squadre per il varco {varco}",
+       "obiettivo": "Per il varco '{varco}' elenca TUTTI i permessi di squadra (anche BLOCCATI e scaduti) con la revoca collegata se c'è (LEFT JOIN: la revoca si collega al PERMESSO tramite la sua chiave primaria, non alla squadra). Colonne: permesso (k0), squadra (k0), nome_squadra, ruolo, stato, permesso_inizio, permesso_fine, revoca_effetto, motivo_revoca."},
+      {"scopo": "Persone delle squadre candidate",
+       "obiettivo": "Per TUTTE le squadre che hanno almeno un permesso per il varco '{varco}' (sottoquery sui permessi del varco, senza filtri di stato o data), elenca le persone con appartenenza alla squadra, abilitazione per il ruolo e sospensione (LEFT JOIN). Colonne: persona (k0 della persona), nome, badge, squadra (k0 della squadra), nome_squadra, ruolo, membro_inizio, membro_fine, abil_inizio, abil_fine, sosp_inizio, sosp_fine, motivo_sospensione."},
+      {"scopo": "Finestre e chiavi dei terminali",
+       "obiettivo": "Per i terminali del varco trovati nel primo passo elenca le finestre di apertura e le versioni della chiave (LEFT JOIN). Colonne: terminale, canale, stato, finestra_inizio, finestra_fine, chiave, chiave_inizio, chiave_fine."}
+    ]
+  }
+}

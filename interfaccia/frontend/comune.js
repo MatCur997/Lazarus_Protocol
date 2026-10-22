@@ -59,6 +59,14 @@ function markdown(testo) {
     const r = righe[i];
     let m;
     if (!r.trim()) { i++; continue; }
+    if (/^\s*```/.test(r)) {                       // blocco di codice (es. la query SQL), mostrato così com'è
+      const codice = [];
+      i++;
+      while (i < righe.length && !/^\s*```/.test(righe[i])) { codice.push(righe[i]); i++; }
+      i++;
+      h += `<pre class="md-codice"><code>${codice.join('\n')}</code></pre>`;
+      continue;
+    }
     if (r.includes('|') && sepTabella(righe[i + 1]) && righe[i + 1].includes('|')) {
       const testa = celle(r);
       i += 2;

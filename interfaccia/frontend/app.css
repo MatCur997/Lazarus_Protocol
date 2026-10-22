@@ -233,6 +233,12 @@ table.modelli td.num, table.modelli th.num { text-align: right; font-family: var
 .md-tab { border-collapse: collapse; margin: 0 0 8px; font-size: .95em; }
 .md-tab th, .md-tab td { border: 1px solid var(--bordo); padding: 4px 9px; text-align: left; vertical-align: top; }
 .md-tab th { background: var(--scheda-2); font-weight: 700; }
+.md-codice { background: var(--scheda-2); border-left: 3px solid var(--testo); padding: 8px 12px; margin: 0 0 8px; overflow-x: auto;
+  font: 12px/1.5 var(--mono); white-space: pre-wrap; }
+/* query SQL eseguita sul database e righe restituite, sotto la risposta */
+.sql-blocco { margin-top: 8px; }
+.sql-blocco summary { cursor: pointer; font-size: 12px; color: var(--tenue); }
+.sql-blocco .md-tab { margin-top: 6px; font-size: 11.5px; }
 .msg .corpo .cit { color: var(--pannello); background: var(--testo); border-radius: 0; padding: 0 4px; font-family: var(--mono); font-size: 11.5px; cursor: pointer; }
 .msg .corpo .persona { border-bottom: 1px solid var(--testo); cursor: pointer; }
 .cursore::after { content: "█"; color: var(--testo); animation: lampeggia 1s steps(2) infinite; }
@@ -351,3 +357,10 @@ body.scheda { background: var(--scrivania) var(--carta-grana); }
   .msg { max-width: 95%; }
 }
 [hidden] { display: none !important; }
+
+/* tool SQL: piano a passi con esiti calcolati */
+.sql-blocco .sql-sintesi { white-space: pre-wrap; font: 12px/1.5 var(--mono); background: var(--scheda); border-left: 3px solid #c6352f; padding: 8px 10px; margin: 8px 0; }
+.sql-blocco .sql-passo { margin-top: 10px; }
+.sql-blocco tr.sql-valida td { background: rgba(47, 122, 75, .12); }
+.sql-blocco tr.sql-esclusa td { color: var(--tenue); }
+.sql-blocco .sql-altre { font-size: 11px; color: var(--debole); margin-top: 4px; }

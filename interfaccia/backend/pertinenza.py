@@ -6,12 +6,19 @@ non dall'origine dei file. Nessun filtro su "wikipedia" o sul campo source: funz
    (1000 su 1024) la media è "rumore di fondo"; tolta quella restano le differenze di contenuto.
 3. k-means (k-means++ con più ripartenze, si tiene la migliore) con K ≈ √(N/2) cluster.
 4. Profilo del caso: il vettore (centrato) della descrizione dello scenario nelle istruzioni del modello.
-   I cluster pertinenti sono quelli il cui centroide è più vicino al profilo (separati dagli altri con Otsu);
-   se così si prenderebbe più di metà archivio, si tiene solo il cluster più vicino.
-5. Archivi piccoli (meno di MINIMO documenti): tutti pertinenti, non c'è niente da separare.
+   Livello 1: i cluster il cui centroide è vicino al profilo (soglia di Otsu) formano un primo dominio dell'indagine.
+5. Livello 2: si tolgono i documenti più vicini al centroide degli estranei (solo togliere: aggiungere fa scivolare
+   il confronto verso l'archivio estraneo); poi rientra chi ha la maggioranza dei 5 vicini nel dominio (vicinato).
+6. Livello 3: coerenza di cartella. In una cartella con almeno il 60% di documenti dell'indagine lo sono tutti
+   (testi generici come G2-07 "Regola dell'indagine" stanno sul confine, ma arrivano insieme agli altri G2).
+7. Archivi piccoli (meno di MINIMO documenti): tutti pertinenti, non c'è niente da separare.
 
-Misura sull'archivio della giornata 3 (1024 documenti, 24 del caso): pertinenti 24, del caso presi 24/24,
-intrusi 0 (con K = 20 e 40). Con numpy (se c'è) servono decimi di secondo; senza, Python puro in background."""
+Misure. Giorno 3 (1024 documenti: 24 del caso + 1000 voci enciclopediche): 24/24, 0 intrusi enciclopedici.
+Con i 500 registri di routine del giorno 3 (stesso stile del caso): tutti i documenti G/ARCH presi, 0 voci
+enciclopediche; i registri di routine restano nel dominio dell'indagine (sono materiale del caso: contro di loro
+lavorano l'accorpamento delle copie e la ricerca a salti, non questo filtro). Selezionare un solo cluster non bastava:
+con quei registri sceglieva un cluster di sola routine e scartava tutti i documenti del caso.
+Con numpy (se c'è) servono decimi di secondo; senza, Python puro in background."""
 import math
 import random
 
@@ -113,7 +120,7 @@ def _mappa_3d(Xc, pc):
     return np.column_stack([x, resto @ vt[0], resto @ vt[1]]).tolist()
 
 
-def pertinenti(vettori_doc, profilo):
+def pertinenti(vettori_doc, profilo, cartelle=None):
     """vettori_doc: {doc_id: vettore}, profilo: vettore della descrizione del caso.
     Ritorna (insieme dei documenti pertinenti, {doc_id: somiglianza al profilo}, dettaglio per il pannello strumenti,
     mappa per la RAG view: {K, etichette {doc: cluster}, cluster [{id, n, vicinanza, pertinente}], coordinate {doc: [x, y, z]}})."""
@@ -129,16 +136,66 @@ def pertinenti(vettori_doc, profilo):
     migliore = min((_kmeans(Xc, K, seme) for seme in range(RIPARTENZE)), key=lambda r: r[2])
     etichette, centri, _ = migliore
     vicinanza = [_dot(c, pc) for c in centri]
+    # livello 1: i cluster vicini al caso (soglia di Otsu sulla vicinanza) sono il primo "dominio dell'indagine"
     scelti = {c for c in range(K) if vicinanza[c] > otsu(vicinanza)}
-    if sum(etichette.count(c) for c in scelti) > n / 2:          # troppo largo: solo il cluster più vicino
-        scelti = {max(range(K), key=vicinanza.__getitem__)}
-    presi = {ids[j] for j in range(n) if etichette[j] in scelti}
+    dentro = [etichette[j] in scelti for j in range(n)]
+    # livello 2: si TOLGONO dal dominio i documenti più vicini al centroide degli estranei che a quello dell'indagine,
+    # finché nessuno cambia. Solo togliere: aggiungendo, partendo da un gruppo piccolo, il confronto "scivola" verso
+    # metà dell'archivio estraneo (misurato: 479 voci enciclopediche dentro e metà del caso fuori).
+    giri = 0
+    A = np.asarray(Xc) if np is not None else None
+    for giri in range(1, 11):
+        if all(dentro) or not any(dentro):
+            break
+        if A is not None:
+            m = np.asarray(dentro)
+            vicino_al_caso = ((A @ A[m].mean(axis=0)) > (A @ A[~m].mean(axis=0))).tolist()   # stessi confronti, con numpy
+        else:
+            c_in = _norma([sum(col) / sum(dentro) for col in zip(*[x for x, d in zip(Xc, dentro) if d])])
+            c_out = _norma([sum(col) / (n - sum(dentro)) for col in zip(*[x for x, d in zip(Xc, dentro) if not d])])
+            vicino_al_caso = [_dot(x, c_in) > _dot(x, c_out) for x in Xc]
+        nuovo = [d and v for d, v in zip(dentro, vicino_al_caso)]
+        if nuovo == dentro:
+            break
+        dentro = nuovo
+    # livello 2b: vicinato. Entra un documento se la maggioranza dei suoi 5 documenti più simili è nel dominio:
+    # i documenti del caso finiti fuori hanno per vicini altri documenti del caso, le voci estranee altre voci estranee.
+    # Solo con numpy (servono tutte le somiglianze tra documenti).
+    aggiunti = 0
+    if A is not None and any(dentro):
+        S = A @ A.T
+        np.fill_diagonal(S, -1)
+        vicini = np.argsort(-S, axis=1)[:, :5]
+        for _ in range(3):
+            m = np.asarray(dentro)
+            nuovo = (m | (m[vicini].mean(axis=1) >= 0.6)).tolist()
+            aggiunti += sum(nuovo) - sum(dentro)
+            if nuovo == dentro:
+                break
+            dentro = nuovo
+    # livello 3: coerenza di cartella. I documenti consegnati insieme di solito stanno insieme: se in una cartella
+    # almeno il 60% dei file è dell'indagine, lo sono anche gli altri (G2-07 "Regola dell'indagine" è troppo generico
+    # per il contenuto, ma sta con G2-01...G2-06). Le voci estranee restano fuori: nella loro cartella sono la maggioranza.
+    recuperati = 0
+    if cartelle:
+        per_cartella = {}
+        for j, d in enumerate(ids):
+            per_cartella.setdefault(cartelle.get(d), []).append(j)
+        for cartella, membri in per_cartella.items():
+            if cartella is not None and len(membri) >= 2 and sum(dentro[j] for j in membri) / len(membri) >= 0.6:
+                for j in membri:
+                    recuperati += not dentro[j]
+                    dentro[j] = True
+    presi = {ids[j] for j in range(n) if dentro[j]}
     somiglianza = {ids[j]: _dot(Xc[j], pc) for j in range(n)}
-    dettaglio = (f'k-means K={K} su {n} documenti: {len(presi)} pertinenti in {len(scelti)} '
-                 f'cluster vicini al caso, {n - len(presi)} esclusi')
+    dettaglio = (f'k-means K={K} su {n} documenti, {len(scelti)} cluster vicini al caso, pulizia in {giri} giri'
+                 + (f', {aggiunti} recuperati per vicinato' if aggiunti else '')
+                 + (f', {recuperati} per cartella' if recuperati else '')
+                 + f': {len(presi)} pertinenti, {n - len(presi)} esclusi')
     coordinate = _mappa_3d(Xc, pc)
+    quota = {c: sum(dentro[j] for j in range(n) if etichette[j] == c) / max(1, etichette.count(c)) for c in range(K)}
     mappa = {'K': K, 'etichette': {ids[j]: etichette[j] for j in range(n)},
-             'cluster': [{'id': c, 'n': etichette.count(c), 'vicinanza': round(vicinanza[c], 3), 'pertinente': c in scelti}
+             'cluster': [{'id': c, 'n': etichette.count(c), 'vicinanza': round(vicinanza[c], 3), 'pertinente': quota[c] >= 0.5}
                          for c in range(K)],
              'coordinate': {ids[j]: [round(x, 4) for x in coordinate[j]] for j in range(n)} if coordinate else None}
     return presi, somiglianza, dettaglio, mappa
