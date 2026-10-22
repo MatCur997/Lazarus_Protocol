@@ -573,6 +573,19 @@ class Indice:
             except Exception as e:
                 strumenti.append({'nome': 'cerca_semantica', 'ms': ms(t), 'dettaglio': f'errore: {e}'})
 
+        # Identificatori: parole della domanda presenti in pochissimi brani (codici, pratiche, nomi rari). Chi le contiene esattamente
+        # va prima, anche se per significato assomiglia a mille altri brani; a parità, contano il numero di identificatori e il BM25.
+        # Si calcolano prima di HyDE: se la domanda ne ha già, HyDE (~2 s) non serve (HYDE_SALTA_CON_IDENTIFICATORI).
+        t = time.perf_counter()
+        soglia_df = max(cfg.IDENT_DF_MIN, cfg.IDENT_DF_FRAZIONE * n)
+        rari = sorted({w for w in q if 0 < self.df.get(w, 0) <= soglia_df})
+        identificatori = []
+        if rari:
+            trovati = [(sum(w in brani[i]['freq'] for w in rari), s, i) for s, i in punteggi if s > 0]
+            identificatori = [i for k, s, i in sorted((x for x in trovati if x[0]), reverse=True)[:cfg.IDENT_MAX_BRANI]]
+            strumenti.append({'nome': 'cerca_identificatori', 'ms': ms(t),
+                              'dettaglio': f'{len(identificatori)} brani con {", ".join(rari)}'})
+
         # HyDE: solo se la domanda da sola trova poco. È una classifica IN PIÙ: un'ipotesi sbagliata
         # non può togliere i brani trovati con la domanda vera.
         hyde = []
@@ -580,6 +593,8 @@ class Indice:
             t = time.perf_counter()
             if tutti_pertinenti:
                 strumenti.append({'nome': 'cerca_hyde', 'ms': 0, 'dettaglio': 'non serve: il modello riceve tutti i documenti pertinenti'})
+            elif identificatori and cfg.HYDE_SALTA_CON_IDENTIFICATORI:
+                strumenti.append({'nome': 'cerca_hyde', 'ms': 0, 'dettaglio': f'non serve: la domanda ha già {len(identificatori)} brani con {", ".join(rari)}'})
             elif migliore >= cfg.HYDE_SOGLIA:
                 strumenti.append({'nome': 'cerca_hyde', 'ms': 0, 'dettaglio': f'non serve: similarità {migliore:.2f} ≥ {cfg.HYDE_SOGLIA:.2f}'})
             else:
@@ -603,18 +618,6 @@ class Indice:
                 except Exception as e:
                     strumenti.append({'nome': 'cerca_riscritta', 'ms': ms(t), 'dettaglio': f'errore nel significato: {e}'})
             strumenti.append({'nome': 'cerca_riscritta', 'ms': ms(t), 'dettaglio': f'domanda riscritta cercata insieme a quella scritta: {len(extra)} classifiche in più'})
-
-        # Identificatori: parole della domanda presenti in pochissimi brani (codici, pratiche, nomi rari). Chi le contiene esattamente
-        # va prima, anche se per significato assomiglia a mille altri brani; a parità, contano il numero di identificatori e il BM25.
-        t = time.perf_counter()
-        soglia_df = max(cfg.IDENT_DF_MIN, cfg.IDENT_DF_FRAZIONE * n)
-        rari = sorted({w for w in q if 0 < self.df.get(w, 0) <= soglia_df})
-        identificatori = []
-        if rari:
-            trovati = [(sum(w in brani[i]['freq'] for w in rari), s, i) for s, i in punteggi if s > 0]
-            identificatori = [i for k, s, i in sorted((x for x in trovati if x[0]), reverse=True)[:cfg.IDENT_MAX_BRANI]]
-            strumenti.append({'nome': 'cerca_identificatori', 'ms': ms(t),
-                              'dettaglio': f'{len(identificatori)} brani con {", ".join(rari)}'})
 
         t = time.perf_counter()
         classifiche = {'bm25': bm25, 'semantica': semantica, 'hyde': hyde, 'identificatori': identificatori, **extra}

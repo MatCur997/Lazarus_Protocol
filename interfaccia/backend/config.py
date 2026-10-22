@@ -24,6 +24,7 @@ MAX_BRANI_PER_DOC = 2     # un documento lungo (o un intruso) non può occupare 
 HYDE = True                # HyDE: il modello scrive una risposta ipotetica, la si cerca per significato come terza classifica
 HYDE_SOGLIA = 0.60         # HyDE solo se la ricerca per significato trova poco (migliore similarità sotto soglia). 1 = sempre
 HYDE_TOKEN = 120           # lunghezza massima della risposta ipotetica
+HYDE_SALTA_CON_IDENTIFICATORI = True   # la domanda ha parole rare (codici, nomi) che trovano già dei brani: HyDE (~2 s) non si fa. False = come prima
 # Fusione delle classifiche (RRF pesata). Gli identificatori sono le parole della domanda che compaiono in pochissimi brani
 # (codici, pratiche, nomi rari): una corrispondenza esatta su una di esse vale più di una somiglianza di significato, che tra
 # documenti quasi identici è rumore. Misurato con misure/misura_ricerca.py: senza questa classifica il documento primo in BM25
