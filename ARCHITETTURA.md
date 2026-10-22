@@ -150,6 +150,37 @@ solo la libreria standard (più `requests`) nel backend.
   misurare i seguiti con e senza riscrittura; `--imposta NOME=VALORE` prova un parametro; `--json` salva il risultato per confrontarlo).
   Domande: `domande_ricerca.json` (a mano, anche catene di documenti), `domande_seguiti.json`, e domande generate dai codici dei documenti.
   `test_ricerca.py` sono prove automatiche con embedding finti (nessun Ollama). `prima.json` è la misura prima di queste modifiche.
+- **Tool SQL (giorno 4, `backend/sql.py`, `backend/missioni.py`)**: i file `.sqlite`/`.db` caricati sono database, non
+  testo (`Indice.database`, anche più di uno). I CSV che esportano una tabella di un database della stessa cartella
+  (`TABELLE_CSV/r03.csv`) non diventano documenti (`copia_di_tabella` in `indice.py`).
+  - **Quale database**: `scegli_database` sceglie per parole della missione, valori e tabelle nominati ("Cocito", "V-46",
+    "r08" -> archivio recuperato; "deposito", "LUME" -> accessi). Ci passano le domande su codici, permessi, accessi, e
+    tutte quelle che nominano qualcosa di una missione.
+  - **Missioni** (`missioni.json`, una voce per database): parametri (istante, varco, canale del veicolo...), regole,
+    ipotesi sulle tabelle, piano a passi, tipo di verdetto. La centrale aggiorna i parametri dalla chat ("la centrale
+    comunica che il canale del veicolo è Zeta", "nuovo istante 2026-11-04 12:30") o dalla pagina Schema logico: si salvano
+    in `registro/missioni_parametri.json` con la storia (prima -> dopo). Non sono scritture sul database.
+  - **Profilo** (`profila`): su tutte le righe, conteggi, distinti, NULL, intervalli di date, etichette, campioni e
+    relazioni. Senza vincoli (archivio recuperato: `r03.k0`, `m12.k1`...) le relazioni si DEDUCONO: una colonna intera
+    i cui valori sono tutti chiavi primarie di un'altra tabella la collega a quella (copertura 100%). È la "mappa con le
+    prove" e lo schema che riceve il modello.
+  - **Tre modi** (`agente_sql`): mappa (il profilo, senza query); piano a passi per le domande risolutive della missione
+    (terminali, permessi, persone, finestre e chiavi: una query per passo, ognuna vede i passi prima); una query per il
+    resto (esplorazione con conteggi e distinti, verifiche, codici).
+  - **Controlli prima di eseguire** (`controlla_query`): JOIN incoerenti con le relazioni (una revoca collegata alla
+    squadra invece che al permesso) e `ORDER BY ... LIMIT 1` per scegliere vengono rimandati al modello. Poi
+    `interroga_database` in sola lettura (authorizer: solo SELECT sulle tabelle, funzioni limitate, tempo massimo).
+    Errore, 0 righe o elenco in blocco senza filtri (più di 10 righe): il modello corregge, 3 tentativi.
+  - **Esiti calcolati dal codice** (`annota`): colonna `esito` su ogni riga. Intervalli `X_inizio/X_fine` con inizio
+    incluso, fine esclusa e fine NULL = senza scadenza; sospensioni e revoche escludono quando sono attive o efficaci
+    (`X_effetto <= istante`); stati non attivi/operativi escludono; canale diverso da quello del veicolo esclude.
+    `sintesi_varco` conclude: coppie SANITARIO + SICUREZZA della stessa squadra, terminali con finestra e chiave valide,
+    esclusi con il motivo; più possibilità o un parametro mancante = non si sceglie, si chiede alla centrale.
+    Verificato contro un calcolo indipendente in Python sullo stesso database: stessi risultati.
+  - **Risposta**: codice con [DB], dossier con i loro ID; sotto la risposta il riquadro con query, passi ed esiti;
+    "mostrami la query" la ripete. Ogni interrogazione va in `registro/missione_log.jsonl` con i parametri in vigore;
+    ripetendo la stessa domanda il registro dice se il risultato è cambiato e quali parametri sono diversi (pagina
+    Schema logico, "Ripeti test"). Richieste di cambiare i dati: rifiutate.
 - **Quanti documenti vede il modello**: se i documenti pertinenti stanno in `SOGLIA_CARATTERI` e `SOGLIA_BRANI` (non sono numeri fissi: un terzo di `NUM_CTX` per i documenti,
   `FRAZIONE_CONTESTO_DOCUMENTI` e `CARATTERI_PER_TOKEN` in `config.py`; con NUM_CTX 12288 fanno 12288 caratteri e 40 brani)
   (40) li riceve tutti, altrimenti i `TOP_K` (10) brani migliori; mai più di `MAX_BRANI_PER_DOC` (2) brani per documento
@@ -169,13 +200,12 @@ solo la libreria standard (più `requests`) nel backend.
   le classifiche arrivano da `Indice.cerca(..., traccia=)`).
 - **Pertinenza (clustering)**: quali documenti riguardano l'indagine lo decide il contenuto, non l'origine del file
   (`pertinenza.py`, chiamato da `Indice.calcola_pertinenza` dopo gli embedding). Vettore medio per documento, centratura
-  sulla media dell'archivio, k-means (K ≈ √(N/2), k-means++ con 4 ripartenze), cluster pertinenti = quelli più vicini al
-  profilo del caso (parte RUOLO delle istruzioni). Sotto 40 documenti sono tutti pertinenti. Sull'archivio del giorno 3:
-  24/24 documenti del caso presi, 1 intruso su 1000. Su un archivio di 1523 documenti con molte voci enciclopediche vicine per argomento al caso il primo
-  passaggio (K=28) lasciava passare 721 documenti, 203 dei quali estranei: la **rifinitura** (`pertinenza.RIFINITURA`, `_rifinisci`) rifà un k-means a DUE gruppi sui
-  soli documenti presi e tiene il gruppo più vicino al profilo (solo se i centroidi sono davvero distinti, `RIFINITURA_SEPARAZIONE_MAX`); un documento scartato che
-  somiglia al profilo più di ogni documento tenuto rientra. Risultato: 526 pertinenti, 518/518 del caso, 8 intrusi invece di 203. Misurato offline con uno script
-  che conosce le sigle dei documenti SOLO per valutare. Le domande sul caso ricevono solo documenti pertinenti; se la
+  sulla media dell'archivio, k-means (K ≈ √(N/2), k-means++ con 4 ripartenze); livello 1: cluster vicini al profilo del
+  caso (Otsu); livello 2: si tolgono i documenti più vicini agli estranei, poi rientra chi ha la maggioranza dei 5 vicini
+  nel dominio; livello 3: coerenza di cartella (≥60% dell'indagine). Regge anche i 500 registri di routine del giorno 3
+  (stesso stile del caso): 15/15 documenti G/ARCH presi, 0 voci enciclopediche. Sotto 40 documenti sono tutti pertinenti. Sull'archivio del giorno 3:
+  24/24 documenti del caso presi, 1 intruso su 1000. Sui 1523 documenti dei giorni 1-3 (con le voci enciclopediche): 523 pertinenti, 518/518 del caso,
+  5 intrusi (la rifinitura a due gruppi usata prima su hotfix/interfaccia-senza-segnali dava 526 e 8). Le domande sul caso ricevono solo documenti pertinenti; se la
   domanda riguarda file non pertinenti (es. "parlami dell'equatore") il modello ne riceve il testo segnato come non
   pertinente e ne parla, ma non diventano mai indizi, eventi o luoghi (`cerca`, `del_caso`). numpy lo rende istantaneo (`--with numpy` nel .bat), senza ~1 minuto.
 - **Non pertinenti (campo `consultazione`)**: le voci enciclopediche sono segnalate al modello e non diventano mai indizi, eventi o luoghi

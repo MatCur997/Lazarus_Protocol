@@ -30,10 +30,10 @@ def _http():
 
 MODELLO = "gemma4:12b"
 OLLAMA = "http://127.0.0.1:11434"
-MAX_TOKEN = 600   # tetto, non obiettivo: con Eventi/Indizi/Ipotesi gemma4:12b arriva spesso a 400 token e a 400 la risposta si troncava a metà frase
+MAX_TOKEN = 600   # (400 troncava le risposte con il risultato SQL) tetto, non obiettivo: con Eventi/Indizi/Ipotesi le risposte arrivano a ~300 token e non vanno troncate
 MAX_TOKEN_CONVERSAZIONE = 200  # messaggi non sul caso: conversazione libera, senza documenti
-NUM_CTX = 12288   # istruzioni + documenti pertinenti (~4-5500 token) + risposta. Un contesto fisso evita di ricaricare il modello: con 8192 i prompt
-                  # più lunghi (stima prudente in prepara_richiesta) facevano salire il contesto a 10240 e Ollama ricaricava gemma due volte (~4 s l'una)
+NUM_CTX = 12288   # fisso per OGNI richiesta: cambiarlo ricarica gemma (~10 s misurati). Con 8192 le risposte SQL (~8000 token di prompt)
+                  # lo superavano e il contesto oscillava 8192 <-> 10240 a ogni domanda; 12288 sta tutto in GPU (10 GB su 12)
 TEMPERATURA = 0.5  # 0 = sempre le stesse parole dei documenti; più alto = riformula di più
 # True = ogni richiesta parte con un codice casuale e Ollama non riusa nulla (sicuro, ma rielabora tutto il prompt: ~3 s prima della prima parola).
 # False = Ollama riusa la parte di prompt uguale alla richiesta precedente (istruzioni, e i documenti se sono gli stessi): più veloce, ma con
@@ -149,9 +149,9 @@ def prepara_richiesta(corpo):
         messaggi[0] = {**messaggi[0], "content": f"{testo}\n{codice}" if ISOLA_SOLO_DOPO_ISTRUZIONI else f"{codice}\n{testo}"}
     opzioni = corpo.setdefault("options", {})
     contesto = opzioni.get("num_ctx", NUM_CTX)
-    # ~2,5 caratteri per token, + marcatori. Misurato con gemma: prosa ~3,1-3,5, ma ID e codici (LX4-1030, RT-4044) solo ~1,3: con 3 la stima era
-    # troppo ottimistica e un prompt da 8177 token in un contesto da 8192 lasciava al modello 15 token di risposta (tagliata a metà frase)
-    stima = sum(len(m["content"]) for m in messaggi) * 2 // 5 + 40 * len(messaggi)
+    # ~2 caratteri per token (stima prudente), + marcatori. Con 3 la stima era bassa: ID, codici, date e SQL costano più token del testo
+    # (misurato: prompt di 8023 token stimato sotto 7700, la risposta si fermava a 166 token per contesto pieno)
+    stima = int(sum(len(m["content"]) for m in messaggi) / 2) + 40 * len(messaggi)
     serve = stima + opzioni.get("num_predict", MAX_TOKEN) + 64
     if serve > contesto:
         opzioni["num_ctx"] = 2048 * math.ceil(serve / 2048)   # più grande solo quando serve (ricarica il modello)

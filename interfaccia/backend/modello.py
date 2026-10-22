@@ -90,7 +90,7 @@ def genera_ollama(modello, messaggi, num_predict=None):
             if pezzo.get('done'):
                 yield 'fine', {'token': pezzo.get('eval_count', 0),
                                'gen_s': pezzo.get('eval_duration', 0) / 1e9,
-                               'prompt_token': pezzo.get('prompt_eval_count', 0)}
+                               'prompt_token': pezzo.get('prompt_eval_count', 0), 'fine': pezzo.get('done_reason')}
 
 
 def risposta_ipotetica(modello, domanda):

@@ -37,9 +37,11 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import config as cfg
 import motore
+import missioni
+import sql as sql_tool
 from config import (CARTELLA_CARICATI, CARTELLA_REGISTRO, ESTENSIONI_OK, ESTRAZIONE_CON_MODELLO, MAX_UPLOAD, PORTA, PROGETTO, STATICI,
                     STRUMENTI, TOP_K)
-from indice import Indice
+from indice import Indice, contesto_da_fonti
 from modello import estrai_con_modello, modelli_disponibili, precarica, verifica_citazione
 from storico import Storico
 from volti import Volti
@@ -105,6 +107,7 @@ class Gestore(BaseHTTPRequestHandler):
             '/api/bacheca': self.api_bacheca,
             '/api/elemento': lambda: self.api_elemento(q.get('tipo', ''), q.get('chiave', '')),
             '/api/ragview/archivio': self.api_ragview_archivio,
+            '/api/database/schema': lambda: self.api_database_schema(q.get('db', '')),
             '/api/ragview/domanda': lambda: self.api_ragview_domanda(q.get('q', '')),
         }
         if url.path in rotte:
@@ -130,6 +133,7 @@ class Gestore(BaseHTTPRequestHandler):
         self.json({'modello': STATO['modello'], 'modelli': generativi, 'ollama': ok, 'demo': STATO['demo'],
                    'embedding': INDICE.embedding_ok, 'modello_embedding': cfg.MODELLO_EMBEDDING,
                    'documenti': len(INDICE.documenti), 'brani': len(INDICE.brani), 'top_k': TOP_K,
+                   'database': [d['nome'] for d in INDICE.database],
                    'avviso': cfg.AVVISO_LAZARUS, 'pertinenza': INDICE.info_pertinenza})
 
     def api_strumenti(self):
@@ -158,6 +162,8 @@ class Gestore(BaseHTTPRequestHandler):
 
     def api_documento(self, doc_id):
         d = INDICE.documenti.get(doc_id)
+        if not d:       # le risposte citano l'ID scritto nel documento (ARCH-5721), non il nome del file
+            d = next((x for x in INDICE.documenti.values() if x.get('id_interno') == doc_id), None)
         if not d:
             return self.json({'errore': 'documento non trovato'}, 404)
         self.json({k: d[k] for k in ('id', 'nome', 'titolo', 'origine', 'testo')})
@@ -206,6 +212,41 @@ class Gestore(BaseHTTPRequestHandler):
         self.json(elenchi)
 
     # ---------------------------------------------------------------- RAG view
+    def api_database_schema(self, nome=''):
+        """Schema logico SQL di un database caricato (?db=nome; senza, il più recente): profilo con relazioni dichiarate
+        e dedotte, ipotesi, missione con parametri e storia, ultima interrogazione del modello su quel database."""
+        if not INDICE.database:
+            return self.json({'database': None, 'elenco': []})
+        elenco = [{'nome': d['nome'], 'giorno': d.get('giorno'), 'titolo': missioni.missione(d['nome']).get('titolo')}
+                  for d in INDICE.database]
+        db = next((d for d in INDICE.database if d['nome'] == nome), None) or max(
+            INDICE.database, key=lambda d: Path(d['percorso']).stat().st_mtime)
+        ultima = next((v for v in reversed(STORICO.voci) if v.get('sql') and v['sql'].get('database') == db['nome']), None)
+        r = ultima['sql'] if ultima else None
+        self.json({'elenco': elenco,
+                   'database': {'nome': db['nome'], 'giorno': db.get('giorno'), **sql_tool.struttura(db['percorso'])},
+                   'ultima': {'domanda': ultima['domanda'], 'sql': r.get('sql'), 'colonne': r.get('colonne', []),
+                              'righe': r.get('righe', [])[:12], 'errore': r.get('errore'), 'tentativi': r.get('tentativi', []),
+                              'passi': [{k: p.get(k) for k in ('scopo', 'sql', 'colonne', 'errore')} | {'righe': p.get('righe', [])[:15],
+                                        'totale': len(p.get('righe', []))} for p in r.get('passi', [])],
+                              'sintesi': r.get('sintesi', ''), 'mappa': bool(r.get('mappa')),
+                              'verdetto': motore.verdetto_permessi(r).split('\n')[0] if not r.get('errore') else ''}
+                             if r else None,
+                   'registro': [v for v in missioni.leggi_log(40) if v['database'] == db['nome']][::-1]})
+
+    def api_missione_parametri(self, corpo):
+        """La centrale aggiorna i parametri dalla pagina Schema logico: {database, parametri} oppure {database, ripristina}."""
+        nome = corpo.get('database', '')
+        if not any(d['nome'] == nome for d in INDICE.database):
+            raise ValueError('Database non caricato')
+        if corpo.get('ripristina'):
+            missioni.ripristina_parametri(nome)
+            return self.json({'ok': True, 'parametri': missioni.missione(nome)['parametri']})
+        attuali = missioni.missione(nome)['parametri']
+        nuovi = {k: (v if v not in ('', None) else None) for k, v in (corpo.get('parametri') or {}).items() if k in attuali}
+        modifiche = missioni.aggiorna_parametri(nome, nuovi, 'pagina')
+        self.json({'ok': True, 'modifiche': modifiche, 'parametri': missioni.missione(nome)['parametri']})
+
     def api_ragview_archivio(self):
         """Archivio visto dal motore: documenti con cluster, pertinenza e coordinate 2D; riepilogo dei cluster."""
         with INDICE.lock:
@@ -427,6 +468,8 @@ class Gestore(BaseHTTPRequestHandler):
                 return self.api_rimuovi(self.corpo_json())
             if url.path == '/api/storico/elimina':
                 return self.json({'eliminate': STORICO.elimina(self.corpo_json().get('id') or '__nessuna__')})
+            if url.path == '/api/missione/parametri':
+                return self.api_missione_parametri(self.corpo_json())
             if url.path == '/api/storico/svuota':
                 return self.json({'eliminate': STORICO.elimina(None)})
             if url.path == '/api/persona/escludi':
@@ -463,7 +506,7 @@ class Gestore(BaseHTTPRequestHandler):
         t = time.perf_counter()
         est = Path(nome).suffix.lower()
         if est not in ESTENSIONI_OK:
-            raise ValueError(f'Formato non supportato: {est or "senza estensione"}. Usa txt, md, csv, json, xml, html, docx, pdf, xlsx o zip.')
+            raise ValueError(f'Formato non supportato: {est or "senza estensione"}. Usa txt, md, csv, json, xml, html, docx, pdf, xlsx, zip o sqlite.')
         cartella.mkdir(parents=True, exist_ok=True)
         salvati = []
         if est == '.zip':
@@ -479,7 +522,11 @@ class Gestore(BaseHTTPRequestHandler):
                     bersaglio.write_bytes(z.read(item))
                     salvati.append(str(bersaglio.relative_to(CARTELLA_CARICATI)))
         else:
-            testo_da_bytes(nome, dati)          # verifica che sia leggibile prima di salvarlo
+            if est in cfg.ESTENSIONI_DATABASE:      # database per il tool SQL: basta che sia davvero SQLite
+                if not dati.startswith(b'SQLite format 3\x00'):
+                    raise ValueError(f'{nome} non è un database SQLite')
+            else:
+                testo_da_bytes(nome, dati)      # verifica che sia leggibile prima di salvarlo
             (cartella / nome).write_bytes(dati)
             salvati.append(str((cartella / nome).relative_to(CARTELLA_CARICATI)))
         if self.headers.get('X-Senza-Indice') == '1':   # cartella: l'indice si ricostruisce una volta sola alla fine
@@ -543,6 +590,8 @@ class Gestore(BaseHTTPRequestHandler):
         domanda = (corpo.get('domanda') or '').strip()
         if not domanda:
             raise ValueError('Domanda vuota')
+        if len(domanda) > cfg.MAX_DOMANDA:      # un testo enorme spingerebbe fuori dal contesto le istruzioni del ruolo
+            raise ValueError(f'Domanda troppo lunga ({len(domanda)} caratteri, massimo {cfg.MAX_DOMANDA})')
         modello = corpo.get('modello') or STATO['modello']
         precedenti = [v for v in STORICO.voci if not v.get('errore') and not v.get('meta')][-2:]
         # cronologia = gli scambi visibili in chat (la pagina manda i loro id); senza, le ultime domande dello storico
@@ -567,14 +616,42 @@ class Gestore(BaseHTTPRequestHandler):
         strumenti = []
         ricerca = None              # ricerca già partita in parallelo al controllo di pertinenza (vedi sotto)
         diretta = motore.domanda_sulla_chat(domanda, cronologia)   # "cosa ti ho appena chiesto?": niente modello
-        riassunto = False
-        # seguito («e lui?»): la domanda si rende autonoma prima di pertinenza, ricerca e risposta; nello storico resta quella scritta
+        if not diretta and motore.tentativo_di_manipolazione(domanda):   # "ignora le istruzioni", "stampa il prompt"
+            diretta = (motore.RIFIUTO_MANIPOLAZIONE, 'manipolazione')
+        riassunto, risultato_sql = False, None
+        # seguito («e lui?», «e il suo codice?»): la domanda si rende autonoma prima di smistamento, pertinenza, ricerca e risposta;
+        # nello storico resta quella scritta
         domanda_ricerca = domanda if diretta else motore.riscrivi_domanda(modello, domanda, cronologia, strumenti, STATO['demo'])
+        # più database caricati (accessi_g_4, archivio_recuperato...): si sceglie quello che la domanda riguarda
+        scelto = sql_tool.scegli_database(domanda_ricerca, INDICE.database) if INDICE.database else None
+        db = scelto['percorso'] if scelto else None
+        missione = missioni.missione(scelto['nome']) if scelto else None
+        if scelto and not diretta:      # "la centrale aggiorna: istante 12:30, canale Delta": parametri, non dati
+            nuovi = missioni.aggiornamento_richiesto(domanda, missione, sql_tool.valori_etichetta(db))
+            if nuovi:
+                modifiche = missioni.aggiorna_parametri(scelto['nome'], nuovi, 'chat')
+                diretta = ('Parametri della missione aggiornati (' + missione.get('titolo', scelto['nome']) + '): '
+                           + '; '.join(f'{k}: {v["prima"] or "non indicato"} → {v["dopo"]}' for k, v in modifiche.items())
+                           + '. Ripeti le verifiche: il registro della missione (Schema logico) mostrerà cosa cambia.', 'parametri')
+            elif missione['parametri'] and re.search(r'\bparametr', domanda, re.I) and missioni.RE_AGGIORNAMENTO.search(domanda) and '?' not in domanda:
+                diretta = ('Quali valori ha comunicato la centrale? Parametri in vigore per ' + missione.get('titolo', scelto['nome'])
+                           + ': ' + ', '.join(f'{k} = {v if v not in (None, "") else "non indicato"}' for k, v in missione['parametri'].items())
+                           + '. Scrivili in chat (es. "la centrale comunica: istante 2026-11-04 12:30, canale del veicolo Delta") '
+                           'o cambiali nel pannello Missione della pagina Schema logico.', 'parametri')
+        al_database = bool(db) and not diretta and (motore.chiede_al_database(domanda_ricerca, INDICE.database)
+                                                    or sql_tool.punteggio_database(domanda_ricerca, INDICE.database) > 0)
+        if al_database and sql_tool.RE_SCRITTURA.search(domanda):   # il database è in sola lettura: niente SQL
+            diretta = (f'Non posso cancellare né modificare dati: il database {scelto["nome"]} è in sola lettura '
+                       'e il tool esegue soltanto query di lettura (SELECT). Posso cercare, contare e verificare.', 'sql-rifiuto')
         if diretta:
             conversazione = True
             strumenti.append({'nome': 'rispondi_dalla_cronologia', 'ms': ms(t0),
                               'dettaglio': f'domanda sulla chat ({diretta[1] if isinstance(diretta[1], str) else str(diretta[1]) + " indietro"}): '
                                            f'risposta presa da {len(cronologia)} scambi visibili'})
+        elif al_database:                             # codice / permesso / accessi: si passa dal tool SQL
+            conversazione = False
+            strumenti.append({'nome': 'controlla_pertinenza', 'ms': ms(t0),
+                              'dettaglio': f'domanda per il database {scelto["nome"]} · regole'})
         else:
             if cfg.PERTINENZA_IN_PARALLELO and motore.pertinenza_col_modello(INDICE, domanda_ricerca, STATO['demo']):
                 # il controllo chiama il modello (~1,7 s): intanto la ricerca lavora per conto suo (BM25, embedding, salti)
@@ -591,22 +668,49 @@ class Gestore(BaseHTTPRequestHandler):
         else:
             fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, precedenti, strumenti, modello, STATO['demo'],
                                                                 riscritta=domanda_ricerca if domanda_ricerca != domanda else None)
+        if al_database and not diretta and not STATO['demo']:
+            # gli indizi dei dossier (persona, deposito, settore, pratica) arrivano dalla RAG; il modello scrive la query
+            t = time.perf_counter()
+            try:
+                with INDICE.lock:   # tutti i documenti caricati, per collegare i valori del database ai dossier
+                    documenti = [(d.get('id_interno') or d['id'], d['testo']) for d in INDICE.documenti.values()]
+                risultato_sql = sql_tool.agente_sql(modello, domanda_ricerca, contesto_da_fonti(fonti), db, documenti, missione)
+                if risultato_sql.get('mappa'):
+                    dettaglio = f'mappa di {scelto["nome"]}: {len(risultato_sql.get("relazioni", []))} relazioni'
+                elif risultato_sql.get('passi'):
+                    dettaglio = (f'piano a {len(risultato_sql["passi"])} passi · {len(risultato_sql["tentativi"])} tentativi · '
+                                 + ' | '.join(f'{p["scopo"]}: {p["errore"] or str(len(p["righe"])) + " righe"}' for p in risultato_sql['passi']))
+                else:
+                    dettaglio = (f'errore: {risultato_sql["errore"]}' if risultato_sql['errore']
+                                 else f'{len(risultato_sql["righe"])} righe') + f' · {len(risultato_sql["tentativi"])} tentativi · {risultato_sql["sql"]}'
+            except Exception as e:                    # Ollama o database non raggiungibili: si risponde con i soli dossier
+                risultato_sql = {'sql': '', 'colonne': [], 'righe': [], 'altre_righe': False, 'errore': str(e),
+                                 'tentativi': [], 'database': scelto['nome'], 'parametri': missione['parametri']}
+                dettaglio = f'errore: {e}'
+            strumenti.append({'nome': 'interroga_database', 'ms': ms(t), 'dettaglio': dettaglio})
         ricerca_ms = ms(t0)
         for s in strumenti:
             invia({'tipo': 'strumento', **s})
         invia({'tipo': 'fonti', 'fonti': fonti})
 
-        messaggi = motore.costruisci_messaggi(domanda if conversazione else domanda_ricerca, fonti, precedenti, conversazione,
-                                              cronologia=[v for v in cronologia if not v.get('meta')],
+        # piano a passi e mappa: le prove sono nel database; dei dossier bastano i primi brani (prompt sotto NUM_CTX,
+        # altrimenti Ollama allarga il contesto e ricarica il modello)
+        solo_db = bool(risultato_sql and (risultato_sql.get('passi') or risultato_sql.get('mappa')))
+        fisso = diretta[0] if diretta else (motore.testo_mappa(risultato_sql) if risultato_sql and risultato_sql.get('mappa') else None)
+        # il dossier (elementi già verificati) non va nei prompt del tool SQL: sono già lunghi e le prove sono nel database
+        note = '' if conversazione else '\n\n'.join(
+            x for x in (motore.note_per_prompt(INDICE, domanda_ricerca), '' if risultato_sql else self.dossier()) if x)
+        messaggi = motore.costruisci_messaggi(domanda if conversazione else domanda_ricerca, fonti[:2] if solo_db else fonti, precedenti,
+                                              conversazione, cronologia=[v for v in cronologia if not v.get('meta')],
                                               elementi_verificati=self.riepilogo_verificato() if riassunto else '',
-                                              nota_archivio='' if conversazione else
-                                              '\n\n'.join(x for x in (motore.note_per_prompt(INDICE, domanda_ricerca), self.dossier()) if x))
+                                              nota_archivio=note, risultato_sql=risultato_sql)
 
         risposta, prima_parola, stat, errore = '', None, {}, None
         t_gen = time.perf_counter()
         try:
             for tipo, valore in motore.genera(modello, messaggi, STATO['demo'], conversazione,
-                                              testo_fisso=diretta[0] if diretta else None, lunga=riassunto):
+                                              testo_fisso=fisso, lunga=riassunto,
+                                              massimo=900 if solo_db else None):   # soluzione + esclusi + passi
                 if tipo == 'token':
                     if prima_parola is None:
                         prima_parola = ms(t0)
@@ -619,17 +723,16 @@ class Gestore(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as e:
             errore = (f'Il modello "{modello}" non è scaricato. Nel terminale: ollama pull {modello}' if e.code == 404
                       else f'Errore di Ollama ({e.code}): {e.read().decode(errors="ignore")[:300]}')
-        except (urllib.error.URLError, ConnectionError) as e:
+        except (urllib.error.URLError, ConnectionError):
             errore = ('Ollama non risponde: non è installato oppure non è avviato. '
                       'Installalo da ollama.com, aprilo e riprova.')
         except (RuntimeError, OSError) as e:
             errore = f'Errore del modello: {e}'
         gen_ms = ms(t_gen)
-        limite_token = cfg.NUM_PREDICT_CONVERSAZIONE if conversazione and not riassunto else cfg.NUM_PREDICT
         strumenti.append({'nome': 'genera_risposta', 'ms': gen_ms,
                           'dettaglio': errore or ('dalla cronologia, senza modello' if diretta
-                                                  else f'{modello}: {stat.get("token", 0)} token'
-                                                       + (' · TRONCATA dal limite di token' if stat.get('token', 0) >= limite_token else ''))})
+                                                  else f'{modello}: {stat.get("token", 0)} token, prompt {stat.get("prompt_token", 0)}'
+                                                  + (' · TRONCATA al tetto di token' if stat.get('fine') == 'length' else ''))})
 
         t = time.perf_counter()
         persone = INDICE.persone_in(risposta) if risposta else []
@@ -648,12 +751,19 @@ class Gestore(BaseHTTPRequestHandler):
         }
         if diretta:
             voce['meta'] = diretta[1]    # risposta sulla chat: non conta come domanda nella cronologia
+        if risultato_sql:
+            voce['sql'] = risultato_sql  # query, righe e tentativi: si vedono sotto la risposta e si possono richiedere
+            try:                         # registro della missione: query, risultati e parametri in vigore
+                registrata = missioni.registra(risultato_sql['database'], domanda, risultato_sql, risposta)
+                voce['registro'] = {k: registrata.get(k) for k in ('id', 'ripete', 'cambiato', 'parametri_cambiati')}
+            except OSError:
+                pass
         STORICO.aggiungi(voce)
         try:
             invia({'tipo': 'fine', 'voce': voce})
         except OSError:
             pass                     # pagina chiusa: estraiamo comunque gli elementi
-        if errore or not risposta or conversazione:   # un saluto non ha luoghi, indizi o eventi
+        if errore or not risposta or conversazione or fisso:   # un saluto o una mappa non hanno luoghi, indizi o eventi
             return
 
         # ---- dopo la risposta: luoghi, indizi, eventi (fuori dal tempo misurato)

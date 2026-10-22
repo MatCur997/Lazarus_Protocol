@@ -89,6 +89,7 @@ NUM_PREDICT_CONVERSAZIONE = 80
 TEMPERATURA = 0.5
 PORTA = 8765
 MAX_UPLOAD = 50 * 1024 * 1024
+MAX_DOMANDA = 2000       # caratteri: oltre, la domanda spingerebbe fuori dal contesto le istruzioni
 # Luoghi, indizi ed eventi: estratti dal modello DOPO la risposta, quindi senza rallentarla.
 # Se arriva una nuova domanda l'estrazione si interrompe e si usano le regole. False = solo regole.
 ESTRAZIONE_CON_MODELLO = False   # True = seconda chiamata al modello dopo ogni risposta: occupa Ollama e rallenta la domanda dopo
@@ -163,7 +164,11 @@ def istruzioni_conversazione():
 
 ESTENSIONI_TESTO = {'.txt', '.md', '.csv', '.json', '.jsonl', '.log'}
 ESTENSIONI_MARKUP = {'.xml', '.html', '.htm'}     # testo con tag: si tengono solo i contenuti
-ESTENSIONI_OK = ESTENSIONI_TESTO | ESTENSIONI_MARKUP | {'.docx', '.pdf', '.xlsx', '.zip'}
+ESTENSIONI_DATABASE = {'.sqlite', '.sqlite3', '.db'}  # database: non si leggono come testo, li usa il tool SQL (sql.py)
+ESTENSIONI_OK = ESTENSIONI_TESTO | ESTENSIONI_MARKUP | ESTENSIONI_DATABASE | {'.docx', '.pdf', '.xlsx', '.zip'}
+
+# Regole, parametri (istante, varco...) e ipotesi delle missioni SQL: missioni.json, una voce per database.
+# I parametri aggiornati dalla centrale stanno in registro/missioni_parametri.json (missioni.py).
 
 STRUMENTI = {
     'rispondi_dalla_cronologia': 'Domande sulla chat ("cosa ti ho appena chiesto?"): la risposta si prende dagli scambi visibili, senza modello.',
