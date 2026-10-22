@@ -54,9 +54,10 @@ def chiede_di_scrivere(domanda):
 RE_ORDINE_ARBITRARIO = re.compile(r'\border\s+by\b[^;]*\blimit\s+(?:0\s*,\s*)?1\b', re.I | re.S)    # anche LIMIT 0, 1
 RE_MAPPA = re.compile(r'\b(mappa|dizionario|struttura|schema)\b.{0,30}\b(tabell\w*|database|dati|archivio)\b'
                       r'|\b(tabell\w*)\b.{0,20}\b(significat\w*|relazion\w*|collegament\w*)\b'
-                      # "quali tabelle ci sono nel database?", "elenco delle tabelle": la risposta è lo schema, non una query sui dati
-                      r'|\b(quali|che|quante|elenc\w*|lista)\b.{0,15}\btabell\w*'
-                      r'|\btabell\w*\b.{0,15}\b(ci sono|contiene|ha)\b', re.I)
+                      # "quali tabelle ci sono nel database?", "elenco delle tabelle": la risposta è lo schema, non una query sui dati.
+                      # Solo "tabelle" al plurale subito dopo: «la tabella e10 ha revoche per Ardesia?» è una domanda sui DATI
+                      r'|\b(quali|quante|che)\s+tabelle\b|\bsignifica\w*\b.{0,20}\btabell\w*'
+                      r'|\b(elenc\w*|lista)\s+(?:del\w*\s+|le\s+)?tabelle\b', re.I)
 
 
 def e_database(percorso):
@@ -87,6 +88,8 @@ def descrivi(percorso):
     `interroga_database` la chiedeva a ogni query (un conteggio di tutte le tabelle per ogni tentativo del modello)."""
     chiave = _firma(percorso)
     if chiave not in _CACHE_DESCRIZIONE:
+        for vecchia in [k for k in _CACHE_DESCRIZIONE if k[0] == chiave[0]]:    # una voce per database: ogni scrittura
+            del _CACHE_DESCRIZIONE[vecchia]                                      # ne aggiungeva una nuova, per sempre
         _CACHE_DESCRIZIONE[chiave] = _descrivi(percorso)
     return _CACHE_DESCRIZIONE[chiave]
 
@@ -237,6 +240,10 @@ def struttura(percorso):
 
 
 # ------------------------------------------------------------------ esecuzione
+# nomi delle tabelle definite nella query: WITH [RECURSIVE] nome [(colonne)] AS (...), nome2 AS (...)
+RE_CTE = re.compile(r'(?:\bwith(?:\s+recursive)?|,)\s*"?(\w+)"?\s*(?:\([^()]*\))?\s*as\s*(?:not\s+)?(?:materialized\s*)?\(', re.I)
+
+
 def interroga_database(query, percorso, massimo=MAX_RIGHE):
     """Esegue UNA query di sola lettura. Ritorna {colonne, righe, altre_righe} oppure {errore}."""
     if not isinstance(query, str) or not query.strip():
@@ -244,6 +251,7 @@ def interroga_database(query, percorso, massimo=MAX_RIGHE):
     if not Path(percorso).is_file():
         return {'errore': 'Carica il database della squadra.'}
     tabelle = set(descrivi(percorso)['tabelle'])
+    cte = {n.lower() for n in RE_CTE.findall(query) if not n.lower().startswith('sqlite_')} - {t.lower() for t in tabelle}
     con = _connetti(percorso)
     negati = []     # perché il controllo ha rifiutato: sqlite dice solo "not authorized", il modello deve sapere cosa correggere
 
@@ -251,8 +259,8 @@ def interroga_database(query, percorso, massimo=MAX_RIGHE):
         if azione == sqlite3.SQLITE_SELECT:
             return sqlite3.SQLITE_OK
         if azione == sqlite3.SQLITE_READ:
-            # db None: tabella definita dalla query stessa (WITH RECURSIVE n ...), non salvata nel database
-            if arg1 in tabelle or db is None:
+            # anche le tabelle definite dalla query stessa (WITH RECURSIVE n ...), e solo quelle: non le tabelle di sistema
+            if arg1 in tabelle or (arg1 or '').lower() in cte:
                 return sqlite3.SQLITE_OK
             negati.append(f'la tabella {arg1} non è leggibile (tabelle: {", ".join(sorted(tabelle))})')
             return sqlite3.SQLITE_DENY
@@ -293,6 +301,7 @@ def interroga_database(query, percorso, massimo=MAX_RIGHE):
 _CACHE_VALORI_DB = {}
 RE_LETTERALE = re.compile(r"'((?:[^']|'')*)'")
 RE_MODELLO = re.compile(r'\b(like|glob)\s*$', re.I)
+RE_CONCATENATO = re.compile(r'\|\|\s*$')       # 'Cocito' in '%' || 'Cocito' || '%': un pezzo, non un valore
 
 
 def valori_del_database(percorso, massimo_per_colonna=20000):
@@ -322,7 +331,10 @@ def valori_assenti(query, percorso):
     assenti = []
     for m in RE_LETTERALE.finditer(query):
         v = m[1].replace("''", "'")
-        if len(v) < 2 or RE_DATA.match(v) or RE_MODELLO.search(query[:m.start()]):
+        prima, dopo = query[:m.start()], query[m.end():]
+        # il modello può essere dentro una funzione (LIKE lower('%x%')): il % basta a riconoscerlo
+        if (len(v) < 2 or RE_DATA.match(v) or '%' in v or RE_MODELLO.search(prima)
+                or RE_CONCATENATO.search(prima) or dopo.lstrip().startswith('||')):
             continue
         if v.lower() not in valori:
             assenti.append(v)
@@ -526,7 +538,9 @@ def _bloccata(r, t):
     """Sospensione attiva o revoca efficace in QUESTA riga. Con due sospensioni (o due revoche) la stessa persona (o permesso)
     ha due righe: ne basta una bloccata per escluderla, la riga con l'altra sospensione non la rende valida."""
     for k, v in r.items():
-        if k.endswith('_inizio') and k[:-7].startswith(NEGATIVI) and _attivo(v, r.get(k[:-7] + '_fine'), t):
+        # serve anche la colonna _fine, come in annota: senza, annota ignora l'intervallo e la riga resterebbe VALIDO
+        if (k.endswith('_inizio') and k[:-7].startswith(NEGATIVI) and k[:-7] + '_fine' in r
+                and _attivo(v, r[k[:-7] + '_fine'], t)):
             return True
         if k.endswith('_effetto') and _efficace(v, t):
             return True
@@ -748,6 +762,10 @@ def copia_di_sicurezza(percorso):
     CARTELLA_BACKUP.mkdir(parents=True, exist_ok=True)
     p = Path(percorso)
     dest = CARTELLA_BACKUP / f'{p.stem}.{time.strftime("%Y%m%d-%H%M%S")}{p.suffix}'
+    n = 1
+    while dest.exists():        # due modifiche nello stesso secondo: la seconda copia non deve coprire la prima
+        n += 1
+        dest = CARTELLA_BACKUP / f'{p.stem}.{time.strftime("%Y%m%d-%H%M%S")}-{n}{p.suffix}'
     sorgente, copia = sqlite3.connect(p), sqlite3.connect(dest)
     try:
         sorgente.backup(copia)
@@ -757,12 +775,25 @@ def copia_di_sicurezza(percorso):
     return dest
 
 
+def _livello_esterno(query):
+    """La query senza stringhe, commenti e parentesi: resta solo l'istruzione principale. Serve a cercare la sua WHERE:
+    quella di una sottoquery (SET x = (SELECT ... WHERE ...)) o di un commento (-- where) non restringe niente."""
+    q = re.sub(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"", "''", query)
+    q = re.sub(r'--[^\n]*|/\*.*?(?:\*/|$)', ' ', q, flags=re.S)
+    esterno, livello = [], 0
+    for c in q:
+        livello += (c == '(') - (c == ')')
+        if livello == 0 and c != ')':
+            esterno.append(c)
+    return ''.join(esterno)
+
+
 def scrittura_vietata(query):
     """Perché l'istruzione non si esegue, o None. UPDATE e DELETE senza WHERE cambierebbero TUTTA la tabella: chi lo vuole
     davvero lo scrive (WHERE 1 = 1)."""
     if not RE_SQL_SCRITTURA.match(query or ''):
         return 'serve una sola istruzione INSERT, UPDATE o DELETE'
-    if re.match(r'\s*(update|delete)\b', query, re.I) and not re.search(r'\bwhere\b', query, re.I):
+    if re.match(r'\s*(update|delete)\b', query, re.I) and not re.search(r'\bwhere\b', _livello_esterno(query), re.I):
         return 'UPDATE e DELETE senza WHERE cambierebbero tutta la tabella: restringi con una WHERE precisa'
     return None
 
@@ -889,6 +920,18 @@ def _righe_compatte(p, massimo=30):
     return ' | '.join(p['colonne']) + '\n' + '\n'.join(righe) + (f'\n... altre {len(p["righe"]) - massimo} righe' if len(p['righe']) > massimo else '')
 
 
+# la data è un VALORE da cercare, non il momento della domanda: «valido_fino 2031-10-14 23:59», «scadono il ...», «ts_a > ...»
+RE_PRIMA_DI_UN_VALORE = re.compile(r'(\b\w+_\w+|[<>=]|\bfino(?:\s+al?)?|\bscad\w*(?:\s+il)?|\bentro(?:\s+il)?|\bdopo(?:\s+il)?'
+                                   r'|\bprima(?:\s+del)?|\btra|\bdal)\s*$', re.I)     # «valido al ...» resta un momento
+
+
+def data_come_valore(domanda):
+    """Vero se la prima data o ora della domanda è un valore da confrontare con le colonne: allora l'istante della missione resta."""
+    inizi = [x.start() for r in (missioni.RE_DATA_ISO, missioni.RE_DATA_NUM, missioni.RE_DATA_MESE, missioni.RE_ORA)
+             if (x := r.search(domanda))]
+    return bool(inizi) and bool(RE_PRIMA_DI_UN_VALORE.search(domanda[:min(inizi)]))
+
+
 def agente_sql(modello, domanda, indizi, percorso, documenti=(), m=None, avanzamento=None):
     """Interroga il database per la domanda. Tre modi:
     - mappa: "mostrami la mappa delle tabelle" -> il profilo completo, senza query;
@@ -898,7 +941,8 @@ def agente_sql(modello, domanda, indizi, percorso, documenti=(), m=None, avanzam
     Ritorna {sql, colonne, righe, altre_righe, errore, tentativi, passi?, sintesi?, mappa?, valori_citati, database, parametri}."""
     m = m or missioni.missione(Path(percorso).name)
     # «e alle 12:30?»: la domanda chiede di un altro momento. Vale solo per questa risposta, i parametri salvati non cambiano
-    istante = missioni.istante_in(domanda, m['parametri']['istante']) if m.get('parametri', {}).get('istante') else None
+    istante = (missioni.istante_in(domanda, m['parametri']['istante'])
+               if m.get('parametri', {}).get('istante') and not data_come_valore(domanda) else None)
     if istante and istante != m['parametri']['istante']:
         m = {**m, 'parametri': {**m['parametri'], 'istante': istante}}
     base = {'database': Path(percorso).name, 'parametri': m['parametri'], 'titolo': m.get('titolo')}
