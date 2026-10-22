@@ -232,11 +232,8 @@ class Gestore(BaseHTTPRequestHandler):
         t0 = time.perf_counter()
         strumenti, traccia = [], {}
         modello = STATO['modello']
-        if motore.chiede_dei_documenti(domanda):
-            conversazione, motivo = False, 'domanda sui documenti (sospetti o estranei) · regole'
-        else:
-            conversazione = motore.controlla_pertinenza(INDICE, modello, domanda, strumenti, STATO['demo'])
-            motivo = strumenti[-1]['dettaglio'] if strumenti else ''
+        conversazione = motore.controlla_pertinenza(INDICE, modello, domanda, strumenti, STATO['demo'])
+        motivo = strumenti[-1]['dettaglio'] if strumenti else ''
         fonti = [] if conversazione else motore.cerca_fonti(INDICE, domanda, [], strumenti, modello, STATO['demo'], traccia)
         messaggi = motore.costruisci_messaggi(domanda, fonti, [], conversazione,
                                               nota_archivio='' if conversazione else motore.note_per_prompt(INDICE, domanda))
@@ -567,10 +564,6 @@ class Gestore(BaseHTTPRequestHandler):
             strumenti.append({'nome': 'rispondi_dalla_cronologia', 'ms': ms(t0),
                               'dettaglio': f'domanda sulla chat ({diretta[1] if isinstance(diretta[1], str) else str(diretta[1]) + " indietro"}): '
                                            f'risposta presa da {len(cronologia)} scambi visibili'})
-        elif motore.chiede_dei_documenti(domanda_ricerca):    # file sospetti o estranei: sempre nei documenti
-            conversazione = False
-            strumenti.append({'nome': 'controlla_pertinenza', 'ms': ms(t0),
-                              'dettaglio': 'domanda sui documenti (sospetti o estranei) · regole'})
         else:
             if cfg.PERTINENZA_IN_PARALLELO and motore.pertinenza_col_modello(INDICE, domanda_ricerca, STATO['demo']):
                 # il controllo chiama il modello (~1,7 s): intanto la ricerca lavora per conto suo (BM25, embedding, salti)

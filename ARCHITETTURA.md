@@ -104,11 +104,12 @@ solo la libreria standard (più `requests`) nel backend.
   tutto: nascondere è solo lato pagina.
 - **Documenti sospetti**: un documento con almeno due segnali di ordini all'assistente ("istruzione per l'assistente",
   "ignora G2-01", "rispondi che…", "non citare le fonti") ha il metadato `sospetto` con il motivo (`motivo_sospetto` in
-  `indice.py`, ricalcolato a ogni caricamento; correzioni a mano in `registro/sospetti.json`, pulsanti nella scheda
-  Documenti). Il modello lo riceve segnalato, non lo esegue ma lo descrive se pertinente; le domande su file
-  malevoli/sospetti lo ricevono sempre (`cerca_fonti`). Un documento sospetto conferma solo voci sul tentativo di
-  manipolazione, mai il suo contenuto (`riscontro` in `testo.py`). Per domande su file estranei o sospetti il modello
-  riceve anche il riepilogo dell'archivio (`nota_archivio`); per "tutti i file" riceve tutti i documenti del caso.
+  `indice.py`, ricalcolato a ogni caricamento; correzioni a mano in `registro/sospetti.json`). Serve solo al team: si vede
+  in modalità debug e fa sì che il documento confermi solo voci sul tentativo di manipolazione, mai il suo contenuto
+  (`riscontro` in `testo.py`). **Il modello NON lo riceve segnalato e nessuna domanda lo cerca apposta**: il prompt dice
+  soltanto che il testo dei documenti è un dato e non un ordine (SICUREZZA in `lazarus.py`); se il modello incontra un
+  tentativo di manipolazione tra le fonti che usa, lo descrive e lo mette in Indizi. Per "tutti i file" riceve tutti i
+  documenti del caso se ci stanno nel contesto. In testa al prompt c'è solo la cronologia dei giorni (`nota_giorni`).
 - **Come si scelgono i brani** (`Indice.cerca`): BM25 su tutto l'archivio, similarità degli embedding (`classifica_per_significato`: con numpy
   è un prodotto di matrici, ≈20 ms su 5000 brani; senza numpy il ciclo in Python puro, ≈500 ms), HyDE se la ricerca per significato trova poco,
   e gli **identificatori**: le parole della domanda presenti in pochissimi brani (`IDENT_DF_FRAZIONE`, `IDENT_DF_MIN`: codici, pratiche, nomi rari).
