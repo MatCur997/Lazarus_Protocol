@@ -101,12 +101,16 @@ def cerca_fonti(indice, domanda, precedenti, strumenti, modello=None, demo=False
         nomi = ', '.join(str(g) for g in sorted(giorni))
         dei_giorni = [b for b in caso if b.get('giorno') in giorni]
         if dei_giorni and tutto_nel_contesto(dei_giorni):
+            fonti = [fonte_da_brano(b) for b in dei_giorni]
+            # la domanda può nominare altro oltre al giorno ("il dossier del giorno 4 come si collega a Luca Serra?"):
+            # anche i documenti su quello. Con i soli brani del giorno il modello inventava il collegamento.
+            presenti = {(f['doc'], f['n']) for f in fonti}
+            altri = [f for f in segui_riferimenti(indice.cerca(query, strumenti, ipotesi, traccia), caso, strumenti)
+                     if (f['doc'], f['n']) not in presenti and not f.get('consultazione')][:6]
             strumenti.append({'nome': 'fondi_risultati', 'ms': 0,
-                              'dettaglio': f'domanda sui giorni {nomi}: {len(dei_giorni)} brani di quei giorni passati interi'})
-            if traccia is not None:
-                traccia.update({'giorni': sorted(giorni), 'brani': len(brani), 'pertinenti': len(caso), 'tutti_pertinenti': False,
-                                'bm25': [], 'semantica': [], 'hyde': [], 'rrf': []})
-            return [fonte_da_brano(b) for b in dei_giorni]
+                              'dettaglio': f'domanda sui giorni {nomi}: {len(dei_giorni)} brani di quei giorni passati interi'
+                                           + (f' + {len(altri)} brani sul resto della domanda' if altri else '')})
+            return fonti + altri
         strumenti.append({'nome': 'filtra_giorno', 'ms': 0,
                           'dettaglio': f'giorni {nomi}: ' + ('nessun documento pertinente di quei giorni, ricerca normale'
                                                              if not dei_giorni else 'troppi documenti, ricerca normale')})
@@ -183,8 +187,13 @@ def chiede_al_database(domanda, database=()):
         return True
     if database and (RE_CODICE_NUMERICO.search(q) or (RE_VALIDITA.search(q) and re.search(r'\bcodic[ei]\b', q))):
         return True
-    giorni_db = {d.get('giorno') for d in database} - {None}
-    return bool(giorni_chiesti(domanda) & giorni_db)
+    # un giorno coperto da UN solo database (e nessun documento): la domanda su quel giorno va a quel database.
+    # Con più database nello stesso giorno (giorno 4: accessi_g_4 e archivio_recuperato) una domanda generica
+    # ("cosa sappiamo del giorno 4?") non si manda a uno dei due a caso: risponde la cronologia, che li descrive entrambi
+    per_giorno = {}
+    for d in database:
+        per_giorno[d.get('giorno')] = per_giorno.get(d.get('giorno'), 0) + 1
+    return any(per_giorno.get(g) == 1 for g in giorni_chiesti(domanda))
 
 
 def verdetto_permessi(r):
@@ -324,6 +333,35 @@ def testo_risultato_sql(r):
             'codice NON è valido. ' + ISTRUZIONI_RISPOSTA_SQL)
 
 
+# ------------------------------------------------------------ identità non provate
+# "Il soggetto LZ-474, che è Luca Serra": il modello collega un codice a una persona senza che nessun documento lo dica.
+# Controllo dopo la risposta: ogni identificazione codice <-> nome deve avere almeno un documento che li contiene entrambi.
+_CODICE_ID = r'[A-Z]{2,4}-\d{2,5}'
+_NOME_ID = r'[A-ZÀ-Ý][a-zà-ÿ]+(?: [A-ZÀ-Ý][a-zà-ÿ]+){1,2}'
+_LEGAME = r'(?:è|e\'|sarebbe|corrisponde a|coincide con|cioè|ovvero|alias|identificat\w* come|noto come)'
+RE_IDENTITA = re.compile(
+    rf'\b(?P<codice>{_CODICE_ID})\b[^.\n]{{0,30}}?\b{_LEGAME}\s+(?:proprio\s+)?(?:il |la |lo )?(?:signor |dott\. )?(?P<nome>{_NOME_ID})'
+    rf'|\b(?P<nome2>{_NOME_ID})\b[^.\n]{{0,30}}?\b{_LEGAME}\s+(?:proprio\s+)?(?:il |la |lo )?(?:soggetto |paziente |cartella )?(?P<codice2>{_CODICE_ID})\b')
+
+
+def identita_non_provate(risposta, documenti):
+    """[(codice, nome)] che la risposta identifica senza un documento che contenga sia il codice sia il cognome.
+    documenti: testi di tutti i documenti caricati (non solo le fonti della risposta: la prova può stare altrove)."""
+    coppie = []
+    for m in RE_IDENTITA.finditer(risposta or ''):
+        codice, nome = (m['codice'], m['nome']) if m['codice'] else (m['codice2'], m['nome2'])
+        cognome = nome.split()[-1]
+        if (codice, nome) not in coppie and not any(codice in t and cognome in t for t in documenti):
+            coppie.append((codice, nome))
+    return coppie
+
+
+def avviso_identita(coppie):
+    return ''.join(f'\n\n> ⚠ **Verifica automatica**: nessun documento caricato collega {c} a {n}. '
+                   'Questa identificazione non è provata: trattala come un errore o, al massimo, come un\'ipotesi da verificare.'
+                   for c, n in coppie)
+
+
 def note_per_prompt(indice, domanda):
     """Cosa va in testa al prompt delle domande sul caso: la cronologia dei documenti e, se servono, le note sull'archivio."""
     return '\n\n'.join(n for n in (nota_giorni(indice), nota_archivio(indice, domanda)) if n)
@@ -340,7 +378,12 @@ def nota_giorni(indice):
     # i database contano come dati del loro giorno: senza, il giorno 4 (solo accessi_g_4.sqlite) "non esisterebbe"
     # e il modello direbbe che l'indagine si ferma al giorno 3
     for db in database:
-        per_giorno.setdefault(db.get('giorno'), []).append(f'database {db["nome"]} (registro accessi, interrogato con il tool SQL)')
+        m = missioni.missione(db['nome'])
+        descrizione = m.get('titolo') if m.get('titolo') != db['nome'] else 'database'
+        istante = m['parametri'].get('istante')
+        per_giorno.setdefault(db.get('giorno'), []).append(
+            f'database {db["nome"]} ({descrizione}' + (f'; istante della missione {istante}' if istante else '')
+            + '; si interroga con il tool SQL)')
     if not any(g is not None for g in per_giorno):
         return ''
     noti = sorted(g for g in per_giorno if g is not None)
